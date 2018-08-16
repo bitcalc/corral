@@ -20,6 +20,8 @@ namespace SplitParClient
         static Socket corralConnection;         
         static HashSet<string> jobList = new HashSet<string>();
         static SplitParConfig config;
+        static bool testWithoutServer = false;
+        static bool testWithoutCorral = false;
         static void PongServer()
         { 
 
@@ -85,7 +87,7 @@ namespace SplitParClient
                 {
                     LogWithAddress.WriteLine(string.Format("Connected"));
                 }
-                serverConnection.Send(Utils.EncodeStr("Hello " + serverConnection.RemoteEndPoint.ToString()));
+                serverConnection.Send(Utils.EncodeStr("Hello " + serverConnection.RemoteEndPoint.ToString() + " from " + Dns.GetHostName().ToString()));
 
                 // wait for the reply message
                 byte[] data = new byte[Utils.MsgSize];
@@ -166,7 +168,8 @@ namespace SplitParClient
                 msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
                 if (msg.Equals(Utils.CompletionMsg))
                 {
-                    corralConnection.Shutdown(SocketShutdown.Both);
+                    //corralConnection.Shutdown(SocketShutdown.Both);
+                    corralConnection.Close();
                     break;
                 }
                 var split = msg.Split(sep);
@@ -181,7 +184,8 @@ namespace SplitParClient
                     else
                     {
                         // inform server when new tasks are available
-                        serverConnection.Send(Utils.EncodeStr(msg));
+                        if (!testWithoutServer)
+                            serverConnection.Send(Utils.EncodeStr(msg));
                         // log data
                         LogWithAddress.WriteLine(string.Format(Utils.Indent(int.Parse(split[0])) + ">>> " + split[1])); 
                         jobList.Add(split[1]);
@@ -299,9 +303,10 @@ namespace SplitParClient
             foreach (var util in config.Utils)
             {
                 // TODO
-                // pick the first file in config to handle
+                // pick the first file in BoogieFiles to handle
                 Debug.Assert(config.BoogieFiles.Count > 0);
-                var file = System.IO.Path.Combine(config.root, config.BoogieFiles.ElementAt(0).value);
+                var file = System.IO.Path.Combine(config.root, Utils.DataDir, config.BoogieFiles.ElementAt(0).value);
+
                 var args = file + " " + util.arguments;
                 var w0 = new WorkItem("local", config.root, args);
                 workers.Add(w0);
@@ -311,7 +316,7 @@ namespace SplitParClient
             threads.ForEach(t => t.Start());
         }
 
-        static void ClientController()
+        static void ClientController(params string[] args)
         {
             if (false)
             {
@@ -322,38 +327,63 @@ namespace SplitParClient
             }
             else
             {
-                ConnectServer();
-            }
-            StartCorral();
-            Thread.Sleep(2000);
-            ConnectCorral();
-            MonitoringCorral();
+                if (!testWithoutServer) 
+                    ConnectServer();
+            } 
 
-            // send completion msg to server 
-            serverConnection.Send(Utils.EncodeStr(Utils.CompletionMsg));
-
-            string msg = "";
+            string msg = Utils.StartMsg;
             while (msg != Utils.CompletionMsg) {
                 // wait for the message
-                byte[] data = new byte[Utils.MsgSize];
-                int receivedDataLength = serverConnection.Receive(data); // wait for the data
-                msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); // decode the data received
-                LogWithAddress.WriteLine(string.Format("{0}", msg)); // log data 
-
+                if (!testWithoutServer)
+                {
+                    byte[] data = new byte[Utils.MsgSize];
+                    int receivedDataLength = serverConnection.Receive(data); // wait for the data
+                    msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); // decode the data received
+                    LogWithAddress.WriteLine(string.Format("{0}", msg)); // log data 
+                }
+                if (msg.Equals(Utils.DoneMsg))
+                {
+                    // receive shutdown signal                       
+                    // tell server that he doesnt need to wait
+                    serverConnection.Send(Utils.EncodeStr(Utils.DoneMsg)); 
+                    serverConnection.Close();
+                }
                 if (msg.Equals(Utils.CompletionMsg))
                 {
                     // receive shutdown signal   
-                    serverConnection.Close();
+                    if (!testWithoutServer)
+                        serverConnection.Close();
                 }
-                else
+                else if (msg.Contains(Utils.StartMsg))
                 {
                     // receive working signal
-                    StartCorral();
-                    ConnectCorral();                    
+                    if (!msg.Equals(Utils.StartMsg))
+                    { 
+                        // start with call tree
+                        var sep = new char[1];
+                        sep[0] = ':';
+                        var split = msg.Split(sep);
+
+                        if (split.Length > 1)
+                        {
+                            Debug.Assert(config.Utils.Count == 1);
+                            config.Utils[0].arguments = config.Utils[0].arguments + " /prevSIState:" + split[1];
+                        }
+                    }
+
+                    if (!testWithoutCorral)
+                    {
+                        StartCorral();
+                        Thread.Sleep(10000);
+                    }
+                    ConnectCorral();
                     MonitoringCorral();
 
                     // send completion msg to server 
-                    serverConnection.Send(Utils.EncodeStr(Utils.CompletionMsg));
+                    if (!testWithoutServer)
+                        serverConnection.Send(Utils.EncodeStr(Utils.CompletionMsg));
+                    else
+                        msg = Utils.CompletionMsg;
                 }
             }
         }
@@ -375,9 +405,17 @@ namespace SplitParClient
         {
             Console.CancelKeyPress += Console_CancelKeyPress;
             Debug.Assert(args.Length > 0);
+            if (args.Length > 1 && args[1].Equals("noServer"))
+            {
+                testWithoutServer = true;
+            }
+            if (args.Length > 2 && args[2].Equals("noCorral"))
+            {
+                testWithoutCorral = true;
+            }
             config = Utils.LoadConfig(args[0]);
             LogWithAddress.init(System.IO.Path.Combine(config.root, Utils.RunDir));
-            ClientController();            
+            ClientController(args);            
             LogWithAddress.Close(); 
         }
     }

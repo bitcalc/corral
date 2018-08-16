@@ -2,6 +2,7 @@ using CommonLib;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -15,6 +16,7 @@ namespace SplitParServer
     {
         public static Dictionary<string, Utils.CurrentState> ClientStates = new Dictionary<string, Utils.CurrentState>();
         public static List<BplTask> BplTasks = new List<BplTask>();
+        static Dictionary<string, int> socketMap = new Dictionary<string, int>();
         static SplitParConfig config;
         static List<Socket> clients = new List<Socket>(); 
         
@@ -42,6 +44,7 @@ namespace SplitParServer
                 {
                     System.IO.Directory.CreateDirectory(System.IO.Path.Combine(remoteFolder, folder)); 
                     System.IO.File.Copy(file, remotefile, true);
+                    File.SetAttributes(remotefile, FileAttributes.Normal);
                 }
             }
         }
@@ -120,7 +123,7 @@ namespace SplitParServer
             LogWithAddress.WriteLine(string.Format("Done"));
         }
 
-        static void RunClients()
+        static void SpawnClients()
         {
             var threads = new List<Thread>();
             var workers = new List<Worker>();
@@ -129,20 +132,21 @@ namespace SplitParServer
             Console.WriteLine("Spawning clients");
 
             // spawn client on own machine 
-            config.DumpClientConfig(config.root, System.IO.Path.Combine(config.root, Utils.ClientConfig), config.BoogieFiles);
-            var configDir = System.IO.Path.Combine(config.root, Utils.ClientConfig);
+            var configDir = System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientConfig);
+            config.DumpClientConfig(config.root, configDir, config.BoogieFiles);            
             var w0 = new Worker(config.root, false, configDir);
             workers.Add(w0);
             threads.Add(new Thread(new ThreadStart(w0.Run)));
-            
+
 
             // spawn client on remote machines
             for (int i = 0; i < config.RemoteRoots.Count; ++i)
             { 
                 string clientRoot = config.RemoteRoots[i].value;
-                configDir = System.IO.Path.Combine(clientRoot, Utils.ClientConfig);
-                config.DumpClientConfig(clientRoot, configDir, config.BoogieFiles);                
+                configDir = System.IO.Path.Combine(clientRoot, Utils.RunDir, Utils.ClientConfig);
+                config.DumpClientConfig(clientRoot, configDir, config.BoogieFiles);
                 var w1 = new Worker(clientRoot, true, configDir);
+                //w1.Run();
                 threads.Add(new Thread(new ThreadStart(w1.Run)));
                 workers.Add(w1);
             }
@@ -172,8 +176,10 @@ namespace SplitParServer
                     LogWithAddress.WriteLine(string.Format("{0}", stringData)); //Write the data on the screen
 
                     // reply the client
-                    listener.Send(Utils.EncodeStr("Hi " + listener.RemoteEndPoint.ToString()));
+                    listener.Send(Utils.EncodeStr("Welcome " + listener.RemoteEndPoint.ToString()));
+
                     clients.Add(listener);
+                    
                 }
                 catch (ArgumentNullException ane)
                 {
@@ -264,40 +270,54 @@ namespace SplitParServer
                         localClientStates = new Dictionary<string, Utils.CurrentState>(ClientStates);
                     }
                     foreach(var client in localClientStates)
-                        if (client.Value == Utils.CurrentState.AVAIL)
+                        if (client.Value == Utils.CurrentState.AVAIL && 
+                            !BplTasks[0].author.Equals(client.Key))
                         {
-                            BplTask topTask = BplTasks[0];
-                            // let him do the first task
-                            lock (LogWithAddress.debugOut)
-                            {
-                                LogWithAddress.WriteLine(string.Format("Transfer {0} to {1}", topTask.ToString(), client.Key));
-                            }
-
-                            // pick the task from a client
-                            // if localClient is the one
-                            if (client.Key.Equals(config.root))
-                            {
-                                System.IO.File.Move(topTask.callTreeDir, System.IO.Path.Combine(config.root, Utils.RunDir));
-                            }
-                            else
-                            {
-                                // find remote client
-                                System.IO.File.Move(topTask.callTreeDir, System.IO.Path.Combine(client.Key, Utils.RunDir));
-                            }
-
-                            // mark him busy
-                            lock (ClientStates)
-                            {
-                                //ClientStates[client.Key] = Utils.CurrentState.BUSY;
-                            }
-
-                            // remove the task
                             lock (BplTasks)
                             {
+                                BplTask topTask = BplTasks[0];
+                                // let him do the first task
+                                lock (LogWithAddress.debugOut)
+                                {
+                                    LogWithAddress.WriteLine(string.Format("Transfer {0} to {1}", topTask.ToString(), client.Key));
+                                }
+
+                                // pick the task from a client
+                                // if localClient is the one
+                                string callTreeDir = System.IO.Path.Combine(topTask.author, Utils.RunDir, topTask.callTreeDir);
+                                if (client.Key.Equals(config.root))
+                                {
+                                    string dir = System.IO.Path.Combine(config.root, Utils.RunDir, System.IO.Path.GetFileName(callTreeDir));
+                                    if (System.IO.File.Exists(dir))
+                                        System.IO.File.Delete(dir);
+                                    System.IO.File.Move(callTreeDir, dir);
+                                }
+                                else
+                                {
+                                    if (System.IO.File.Exists(callTreeDir))
+                                    { 
+                                        string dir = System.IO.Path.Combine(client.Key, Utils.RunDir, System.IO.Path.GetFileName(callTreeDir));
+                                        // find remote client
+                                        if (System.IO.File.Exists(dir))
+                                            System.IO.File.Delete(dir);
+                                        System.IO.File.Move(callTreeDir, dir);
+                                    }
+                                }
+
+                                // mark him busy
+                                lock (ClientStates)
+                                {
+                                    ClientStates[client.Key] = Utils.CurrentState.BUSY;
+                                }
+
+                                // remove the task
                                 BplTasks.RemoveAt(0);
+
+                                // send the task to client
+                                clients[socketMap[client.Key]].Send(Utils.EncodeStr(Utils.StartWithCallTreeMsg + System.IO.Path.GetFileName(callTreeDir)));
                             }
 
-                            // send the task to client
+
                         }
                 }
                 lock (ClientStates)
@@ -305,6 +325,11 @@ namespace SplitParServer
                     if (!ClientStates.Any(client => client.Value == Utils.CurrentState.BUSY))
                         break;
                 }
+            }
+
+            foreach (var c in clients)
+            {
+                c.Send(Utils.EncodeStr(Utils.DoneMsg));
             }
         }
 
@@ -321,9 +346,19 @@ namespace SplitParServer
 
             for (int i = 0; i < clients.Count; ++i)
             {
-                var listener = new ServerListener(clients[i], config.RemoteRoots[i].value);
-                threads.Add(new Thread(new ThreadStart(listener.Listen)));
-                workers.Add(listener); 
+                if (i == 0)
+                {
+                    var listener = new ServerListener(clients[i], config.root);
+                    threads.Add(new Thread(new ThreadStart(listener.Listen)));
+                    workers.Add(listener);
+                }
+                else
+                {
+                    var listener = new ServerListener(clients[i], config.RemoteRoots[i - 1].value);
+                    threads.Add(new Thread(new ThreadStart(listener.Listen)));
+                    workers.Add(listener);
+
+                }
             }
 
             threads.Add(new Thread(new ThreadStart(TaskDelivery)));
@@ -332,34 +367,43 @@ namespace SplitParServer
             threads.ForEach(t => t.Join());
 
             Console.WriteLine("Time taken = {0} seconds", (DateTime.Now - starttime).TotalSeconds.ToString("F2"));
+        } 
+
+        static void RunLocalClient()
+        {
+            lock (ClientStates)
+            {
+                ClientStates[config.root] = Utils.CurrentState.BUSY;
+            }
+
+            // local client is working
+            clients[0].Send(Utils.EncodeStr(Utils.StartMsg));
+
         }
 
-        static void MonitoringCorral()
+        static void RunRemoteClient()
         {
-            var sep = new char[1];
-            sep[0] = ':'; 
-
-            string msg = "";
-            while (!msg.Equals(Utils.CompletionMsg))
+            lock (ClientStates)
             {
-                byte[] data = new byte[Utils.MsgSize];
-                int receivedDataLength = clients.ElementAt(0).Receive(data); //Wait for the data
-                msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
-                if (msg.Equals(Utils.CompletionMsg))
-                    break;
-                var split = msg.Split(sep);
-                if (split.Length > 1)
+                foreach (var c in config.RemoteRoots)
                 {
-                    LogWithAddress.WriteLine(string.Format(Utils.Indent(int.Parse(split[0])) + ">>> " + split[1])); //Write the data on the screen
+                    ClientStates[c.value] = Utils.CurrentState.BUSY;
+                    break;
                 }
             }
-            LogWithAddress.WriteLine(string.Format("{0}", msg));
+
+            for (int i = 1; i < clients.Count; ++i)
+            {
+                clients[i].Send(Utils.EncodeStr(Utils.StartMsg));
+                break;
+            }
+
         }
 
         static void ServerController()
         {            
             InstallingClients();
-            RunClients();
+            SpawnClients();
             Thread.Sleep(2000);
             if (true)
             {
@@ -367,15 +411,20 @@ namespace SplitParServer
                 if (localIP != null)
                 {
                     ConnectClient(localIP);
+                    socketMap[config.root] = clients.Count - 1;                    
                     foreach (var client in config.RemoteRoots)
                     {
                         string tmp = Utils.GetRemoteMachineName(client.value);
-                        //ConnectClient(tmp);
+                        ConnectClient(tmp);
+                        socketMap[client.value] = clients.Count - 1;
                         lock (LogWithAddress.debugOut)
                         {
                             LogWithAddress.WriteLine(string.Format("Machine name: {0}", tmp));
                         }
                     }
+
+                    //RunLocalClient();
+                    RunRemoteClient();
                 }
                 else
                     new Exception(string.Format("Cannot get local IP"));
@@ -385,11 +434,6 @@ namespace SplitParServer
                 CreateConnection();
             }
 
-            // local client is working
-            lock (ClientStates)
-            {
-                ClientStates[config.root] = Utils.CurrentState.BUSY;
-            }
             MonitoringClients();
 
             // connections are closed in ServerListener
@@ -411,6 +455,7 @@ namespace SplitParServer
 
         static void Main(string[] args)
         {
+            //Utils.SpawnClientRemote("\\rse-server-14\\f$\\tmp\\t-dibuip\\SplitPar\\client\\SplitParClient.exe", "\\rse-server-14\\f$\\tmp\\t-dibuip\\SplitPar\\run\\client-config.xml");
             Console.CancelKeyPress += Console_CancelKeyPress;
             
             Debug.Assert(args.Length > 0);

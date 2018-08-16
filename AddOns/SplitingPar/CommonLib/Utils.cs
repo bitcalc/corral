@@ -22,8 +22,11 @@ namespace CommonLib
         public static string OutOfMemoryMsg = "Inconclusive";
         public static string ReachedBoundMsg = "ReachedBound";
         public static string CompletionMsg = "Complete";
+        public static string StartMsg = "Start";
+        public static string StartWithCallTreeMsg = "Start:";
         public static string DoingMsg = "Doing";
         public static string ResultFile = "result.txt";
+        public static string DoneMsg = "DONE";
         public static int MsgSize = 1024;
         public static int ServerPort = 11000;
         public static int CorralPort = 12000;
@@ -31,9 +34,9 @@ namespace CommonLib
         // paths
         public static string DataDir = "data";
         public static string RunDir = "run";
-        public static string CorralDir = "..\\..\\bin\\Debug";
+        public static string CorralDir = "corral";
         public static string CorralExe = "corral.exe";
-        public static string SplitParClientDir = "SplitParClient\\bin\\Debug";
+        public static string SplitParClientDir = "client";
         public static string SplitParClientExe = "SplitParClient.exe";
         public static string SplitParServerExe = "SplitParServer.exe";
         public static string PsToolsDir = "pstools";
@@ -43,7 +46,7 @@ namespace CommonLib
         // other
         public static string ServerLog = "ServerLog.out";
         public static string ClientLog = "ClientLog.out";
-
+        public static string CallTreeSuffix = "split.txt";
         public enum CurrentState { AVAIL, BUSY };
 
         public static HashSet<Process> SpawnedProcesses = new HashSet<Process>();
@@ -199,15 +202,15 @@ namespace CommonLib
 
             var outp = Utils.run(tmp, loc, flags);
 
-            var resultsfile = System.IO.Path.Combine(tmp, Utils.ResultFile);
-            var ex = System.IO.File.Exists(resultsfile);
+            //var resultsfile = System.IO.Path.Combine(tmp, Utils.ResultFile);
+            //var ex = System.IO.File.Exists(resultsfile);
 
-            if (debugOutput)
-            {
-                Console.WriteLine(string.Format("Local client:"));
-                if (!ex)
-                    Console.WriteLine(string.Format("Did not find a {0} file", Utils.ResultFile));
-            }
+            //if (debugOutput)
+            //{
+            //    Console.WriteLine(string.Format("Local client:"));
+            //    if (!ex)
+            //        Console.WriteLine(string.Format("Did not find a {0} file", Utils.ResultFile));
+            //}
         }
 
         public static void SpawnClientRemote(string root, params string[] args)
@@ -223,8 +226,8 @@ namespace CommonLib
 
             // psexec machine -w remoteroot\run remoteroot\Binaries\RunParClient.exe remoteroot args
             var cmd = System.IO.Path.Combine(root, Utils.PsToolsDir, Utils.PsToolsExe);
-            var flags = string.Format("{0} -w {1} {2} {3} {4}",
-                machine, remotetmp, System.IO.Path.Combine(remoteroot, Utils.SplitParClientDir, Utils.SplitParClientExe), remoteroot, args.Aggregate("", (s1, s2) => s1 + " " + s2));
+            var flags = string.Format("{0} -w {1} {2} {3}",
+                machine, remotetmp, System.IO.Path.Combine(remoteroot, Utils.SplitParClientDir, Utils.SplitParClientExe), args.Aggregate("", (s1, s2) => s1 + " " + s2));
 
             if (debugOutput)
             {
@@ -234,15 +237,15 @@ namespace CommonLib
             
             Utils.runAndSkipOutput(root, cmd, flags);
 
-            var resultsfile = System.IO.Path.Combine(tmp, Utils.ResultFile);
-            var ex = System.IO.File.Exists(resultsfile);
+            //var resultsfile = System.IO.Path.Combine(tmp, Utils.ResultFile);
+            //var ex = System.IO.File.Exists(resultsfile);
 
-            if (debugOutput)
-            {
-                Console.WriteLine(string.Format("Remote client {0}:", root));
-                if (!ex)
-                    Console.WriteLine(string.Format("Did not find a {0} file", Utils.ResultFile));
-            }
+            //if (debugOutput)
+            //{
+            //    Console.WriteLine(string.Format("Remote client {0}:", root));
+            //    if (!ex)
+            //        Console.WriteLine(string.Format("Did not find a {0} file", Utils.ResultFile));
+            //}
         }
 
     }

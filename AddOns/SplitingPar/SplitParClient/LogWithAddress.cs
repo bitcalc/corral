@@ -46,7 +46,7 @@ namespace SplitParClient
         {
             if (level == LogWithAddress.Normal)
             {
-                level = Debug;
+                //level = Debug;
             }
 
             switch (level)

@@ -31,7 +31,7 @@ namespace SplitParServer
                 while (!msg.Equals(Utils.CompletionMsg))
                 {
                     byte[] data = new byte[Utils.MsgSize];
-                    int receivedDataLength = connection.Receive(data); //Wait for the data
+                    int receivedDataLength = connection.Receive(data); //Wait for the data from client
                     msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
                     if (msg.Equals(Utils.CompletionMsg))
                     {
@@ -40,7 +40,18 @@ namespace SplitParServer
                             SplitParServer.ClientStates[clientIP] = Utils.CurrentState.AVAIL;
                         }
                         // client completed his job
-                        connection.Send(Utils.EncodeStr(Utils.CompletionMsg));
+                        // tell client that he can quit
+                        //connection.Send(Utils.EncodeStr(Utils.CompletionMsg));
+                        //Finish();
+                        //break;
+                    }
+                    else if (msg.Equals(Utils.DoneMsg))
+                    {
+                        lock (SplitParServer.ClientStates)
+                        {
+                            SplitParServer.ClientStates[clientIP] = Utils.CurrentState.AVAIL;
+                        }
+                        // clients & server completed his job
                         Finish();
                         break;
                     }
@@ -52,12 +63,17 @@ namespace SplitParServer
                         { 
                             if (split.Length > 1)
                             {
-                                BplTask newTask = new BplTask(clientIP, split[1], int.Parse(split[0]));
-                                LogWithAddress.WriteLine(string.Format(newTask.ToString())); //Write the data on the screen
-                                // add a new task
-                                lock (SplitParServer.BplTasks)
+                                var fileName = split[1];
+                                if (fileName.Contains(Utils.CallTreeSuffix))
                                 {
-                                    SplitParServer.BplTasks.Add(newTask);
+                                    fileName = fileName.Substring(0, fileName.IndexOf(Utils.CallTreeSuffix)) + Utils.CallTreeSuffix;
+                                    BplTask newTask = new BplTask(clientIP, fileName, int.Parse(split[0]));
+                                    LogWithAddress.WriteLine(string.Format(newTask.ToString())); //Write the data on the screen
+                                                                                                 // add a new task
+                                    lock (SplitParServer.BplTasks)
+                                    {
+                                        SplitParServer.BplTasks.Add(newTask);
+                                    }
                                 }
                             }
                         }

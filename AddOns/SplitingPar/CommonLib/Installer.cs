@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -77,6 +78,7 @@ namespace CommonLib
                     System.IO.Directory.CreateDirectory(System.IO.Path.Combine(remote, folder));
                     //Console.WriteLine("copy {0} {1}", file, remotefile);
                     System.IO.File.Copy(file, remotefile, true);
+                    File.SetAttributes(remotefile, FileAttributes.Normal);
                 }
             }
         }
@@ -90,6 +92,7 @@ namespace CommonLib
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(dest));
             Console.WriteLine("copy {0} {1}", src, dest);
             System.IO.File.Copy(src, dest, true);
+            File.SetAttributes(dest, FileAttributes.Normal);
         } 
 
 

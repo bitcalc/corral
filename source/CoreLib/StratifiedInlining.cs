@@ -801,16 +801,11 @@ namespace CoreLib
                         {
                             server.Bind(localEndPoint);
                             server.Listen(10);
-                            lock (LogWithAddress.debugOut)
-                            {
-                                LogWithAddress.WriteLine(string.Format("Waiting for a connection..."));
-                            }
+                            LogWithAddress.WriteLine(string.Format("Waiting for a connection..."));
                             server = server.Accept();
                             lock (LogWithAddress.debugOut)
-                            {
-                                LogWithAddress.WriteLine(string.Format("Connected"));
-                            }
-                            server.Send(EncodeStr("Hello " + server.RemoteEndPoint.ToString()));
+                            LogWithAddress.WriteLine(string.Format("Connected"));
+                            server.Send(EncodeStr("Hello " + server.RemoteEndPoint.ToString() + " from " + Dns.GetHostName().ToString()));
 
                             // wait for the reply message
                             byte[] data = new byte[msgSize];
