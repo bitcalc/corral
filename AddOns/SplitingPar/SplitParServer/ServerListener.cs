@@ -28,22 +28,18 @@ namespace SplitParServer
             if (connection != null)
             {
                 string msg = "";
-                while (!msg.Equals(Utils.CompletionMsg))
+                while (!msg.Equals(Utils.DoneMsg))
                 {
                     byte[] data = new byte[Utils.MsgSize];
                     int receivedDataLength = connection.Receive(data); //Wait for the data from client
                     msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
                     if (msg.Equals(Utils.CompletionMsg))
                     {
+                        // client completed his job
                         lock (SplitParServer.ClientStates)
                         {
                             SplitParServer.ClientStates[clientIP] = Utils.CurrentState.AVAIL;
                         }
-                        // client completed his job
-                        // tell client that he can quit
-                        //connection.Send(Utils.EncodeStr(Utils.CompletionMsg));
-                        //Finish();
-                        //break;
                     }
                     else if (msg.Equals(Utils.DoneMsg))
                     {
@@ -85,8 +81,8 @@ namespace SplitParServer
         public void Finish()
         {
             if (connection != null)
-            {
-                connection.Send(Utils.EncodeStr(Utils.CompletionMsg));
+            { 
+                //connection.Shutdown(SocketShutdown.Both);
                 connection.Close();
             }
         } 

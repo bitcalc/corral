@@ -332,8 +332,8 @@ namespace SplitParClient
             } 
 
             string msg = Utils.StartMsg;
-            while (msg != Utils.CompletionMsg) {
-                // wait for the message
+            while (msg != Utils.DoneMsg) {
+                // wait for a message
                 if (!testWithoutServer)
                 {
                     byte[] data = new byte[Utils.MsgSize];
@@ -343,20 +343,20 @@ namespace SplitParClient
                 }
                 if (msg.Equals(Utils.DoneMsg))
                 {
-                    // receive shutdown signal                       
+                    // receive a shutdown signal                       
                     // tell server that he doesnt need to wait
-                    serverConnection.Send(Utils.EncodeStr(Utils.DoneMsg)); 
-                    serverConnection.Close();
+                    serverConnection.Send(Utils.EncodeStr(Utils.DoneMsg));
+                    //serverConnection.Close();
                 }
                 if (msg.Equals(Utils.CompletionMsg))
                 {
-                    // receive shutdown signal   
+                    // receive a shutdown signal   
                     if (!testWithoutServer)
                         serverConnection.Close();
                 }
                 else if (msg.Contains(Utils.StartMsg))
                 {
-                    // receive working signal
+                    // receive a working signal
                     if (!msg.Equals(Utils.StartMsg))
                     { 
                         // start with call tree
@@ -404,6 +404,7 @@ namespace SplitParClient
         static void Main(string[] args)
         {
             Console.CancelKeyPress += Console_CancelKeyPress;
+            #region for testing purpose
             Debug.Assert(args.Length > 0);
             if (args.Length > 1 && args[1].Equals("noServer"))
             {
@@ -413,6 +414,7 @@ namespace SplitParClient
             {
                 testWithoutCorral = true;
             }
+            #endregion
             config = Utils.LoadConfig(args[0]);
             LogWithAddress.init(System.IO.Path.Combine(config.root, Utils.RunDir));
             ClientController(args);            
