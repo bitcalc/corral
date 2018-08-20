@@ -64,6 +64,12 @@ namespace CommonLib
             {          
                 CopyFile(System.IO.Path.Combine(root, src.value), System.IO.Path.Combine(remote, Utils.DataDir, System.IO.Path.GetFileName(src.value)));
             }
+
+            // clean run folder
+            var oldFiles = System.IO.Directory.GetFiles(System.IO.Path.Combine(remote, Utils.RunDir));
+            foreach (var file in oldFiles)
+                if (file.EndsWith("txt"))
+                    System.IO.File.Delete(System.IO.Path.GetFullPath(file));
         }
 
         static void CopyFolder(string root, string remote, string folder, bool force)

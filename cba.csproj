@@ -219,6 +219,10 @@
       <Project>{e1f10180-c7b9-4147-b51f-fa1b701966dc}</Project>
       <Name>VCGeneration</Name>
     </ProjectReference>
+    <ProjectReference Include="source\BctCleanup\BctCleanup.csproj">
+      <Project>{cb49f405-32de-4b41-b49d-5f8e54e43100}</Project>
+      <Name>BctCleanup</Name>
+    </ProjectReference>
     <ProjectReference Include="source\ConcurrentHoudini\ConcurrentHoudini.csproj">
       <Project>{529ac312-bb91-4154-8ba3-7ca8743e0434}</Project>
       <Name>ConcurrentHoudini</Name>
@@ -240,7 +244,7 @@
       <Name>HoudiniLite</Name>
     </ProjectReference>
     <ProjectReference Include="source\ProgTransformation\ProgTransformation.csproj">
-      <Project>{6532B8A9-8CC2-4D7F-9D5E-7669841B6871}</Project>
+      <Project>{6532b8a9-8cc2-4d7f-9d5e-7669841b6871}</Project>
       <Name>ProgTransformation</Name>
     </ProjectReference>
     <ProjectReference Include="source\Util\CorralUtil.csproj">

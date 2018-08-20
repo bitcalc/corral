@@ -9,6 +9,7 @@ using System.Diagnostics.Contracts;
 using System.IO;
 using VC;
 using cba.Util;
+using System.Net.Sockets;
 
 namespace cba.Util
 {
@@ -36,9 +37,13 @@ namespace cba.Util
         public static bool useDuality = false;
         public static HashSet<string> procsHitRecBound = new HashSet<string>();
         public static bool PrintImplsBeingVerified = false;
+        public static bool singleConnectionOnly = false;
 
         // TODO: move this elsewhere
         public static HashSet<string> ignoreAssertMethods;
+
+        // Socket for SplitPar module
+        public static Socket connection;
 
         public static void setTimeOut(int TO)
         {
@@ -166,7 +171,8 @@ namespace cba.Util
                 Debug.Assert(CommandLineOptions.Clo.vcVariety != CommandLineOptions.VCVariety.Doomed);
                 Debug.Assert (CommandLineOptions.Clo.StratifiedInlining > 0);
                 if (options.newStratifiedInlining) {
-                  if(options.newStratifiedInliningAlgo.ToLower() == "duality") Microsoft.Boogie.SMTLib.Factory.UseInterpolation = true;
+                  if(options.newStratifiedInliningAlgo.ToLower() == "duality")
+                        Microsoft.Boogie.SMTLib.Factory.UseInterpolation = true;
                   vcgen = new CoreLib.StratifiedInlining(program, CommandLineOptions.Clo.SimplifyLogFilePath, CommandLineOptions.Clo.SimplifyLogFileAppend, null);
                 }
                 else

@@ -166,7 +166,7 @@ namespace CoreLib
     [Serializable]
     public class SplitState
     {
-        public HashSet<string> CallTree; 
+        public HashSet<string> CallTree;
         //  MUST_REACH = 0, BLOCK = 1
         public List<Tuple<string, int>> SplitingNodes = null;
 
@@ -201,7 +201,7 @@ namespace CoreLib
         public SplitState(HashSet<string> callTree, List<Tuple<string, int>> splitingNodes)
         {
             CallTree = new HashSet<string>(callTree);
-            SplitingNodes = new List<Tuple<string, int>>(splitingNodes); 
+            SplitingNodes = new List<Tuple<string, int>>(splitingNodes);
         }
 
         public void UpdateCallTree(HashSet<string> callTree)
@@ -225,12 +225,12 @@ namespace CoreLib
             stream.Close();
 
             return cs;
-        }  
+        }
 
         public void DumpSplitingState(string file)
         {
             if (file != null)
-            { 
+            {
                 BinaryFormatter serializer = new BinaryFormatter();
                 FileStream stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
                 serializer.Serialize(stream, this);
@@ -247,7 +247,7 @@ namespace CoreLib
     /* stratified inlining technique */
     public class StratifiedInlining : StratifiedVCGenBase
     {
-        public static readonly string ForceInlineAttr = "ForceInline";
+        public static readonly string ForceInlineAttr = "ForceInline"; 
 
         public Stats stats;
 
@@ -704,26 +704,27 @@ namespace CoreLib
             StratifiedInliningErrorReporter reporter)
         {
             Outcome outcome = Outcome.Inconclusive;
-            reporter.reportTraceIfNothingToExpand = true;            
+            reporter.reportTraceIfNothingToExpand = true;
             var prevMustAsserted = new Stack<List<Tuple<StratifiedVC, Block>>>();
             var backtrackingPoints = new Stack<SiState>();
             var decisions = new Stack<DecisionWithTaskID>();
             var timeGraph = new TimeGraph();
-            Socket server = null;
             string exportSuffix = "split.txt";
             string readyMsg = "Client is ready";
             string completionMsg = "Complete";
             string doingMsg = "Doing";
             int portNumber = 12000; // let skip the user-define port at the moment
             int msgSize = 1024;
+            int threshold = 5;
             int treesize = di.ComputeSize();
+            Socket connection = BoogieVerify.connection;
 
             var EncodeStr = new Func<string, byte[]>((s) =>
             {
                 return Encoding.ASCII.GetBytes(s);
             });
 
-            #region Set up connection
+            #region Set up the connection
             if (cba.Util.BoogieVerify.options.connectionPort != null)
             {
                 var localIP = new Func<string>(() =>
@@ -741,89 +742,27 @@ namespace CoreLib
 
                 if (System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable())
                 {
-                    if (false)
+                    if (!connection.Connected)
                     {
-                        #region do not use it
-                        try
-                        {                           
-                            IPHostEntry ipHostInfo = Dns.Resolve(localIP());
-                            IPAddress ipAddress = ipHostInfo.AddressList[0];
-                            IPEndPoint remoteEP = new IPEndPoint(ipAddress, portNumber);
-
-
-                            server = new Socket(AddressFamily.InterNetwork,
-                                SocketType.Stream, ProtocolType.Tcp);
-
-                            try
-                            {
-                                server.Connect(remoteEP);
-
-                                LogWithAddress.WriteLine(string.Format("Socket connected {0}", server.RemoteEndPoint.ToString()));
-
-                                byte[] data = new byte[msgSize];
-                                int receivedDataLength = server.Receive(data); //Wait for the data
-                                string stringData = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
-                                LogWithAddress.WriteLine(string.Format("{0}", stringData)); //Write the data on the screen
-
-                                // reply the server
-                                server.Send(EncodeStr(string.Format("{0}: {1}", localIP(), readyMsg)));
-                            }
-                            catch (ArgumentNullException ane)
-                            {
-                                LogWithAddress.WriteLine(string.Format("ArgumentNullException : {0}", ane.ToString()));
-                            }
-                            catch (SocketException se)
-                            {
-                                LogWithAddress.WriteLine(string.Format("SocketException : {0}", se.ToString()));
-                            }
-                            catch (Exception e)
-                            {
-                                LogWithAddress.WriteLine(string.Format("Unexpected exception : {0}", e.ToString()));
-                            }
-
-                        }
-                        catch
-                        {
-                            LogWithAddress.WriteLine(string.Format("Cannot connect the server."));
-                        }
-                        #endregion
-                    }
-                    else
-                    {
+                        #region this part is moved to Driver.cs
                         IPHostEntry ipHostInfo = Dns.Resolve(Dns.GetHostName());
                         IPAddress ipAddress = ipHostInfo.AddressList[0];
                         IPEndPoint localEndPoint = new IPEndPoint(ipAddress, portNumber);
 
-
-                        server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                        connection = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
                         try
                         {
-                            server.Bind(localEndPoint);
-                            server.Listen(10);
+                            connection.Bind(localEndPoint);
+                            connection.Listen(10);
                             LogWithAddress.WriteLine(string.Format("Waiting for a connection..."));
-                            server = server.Accept();
-                            lock (LogWithAddress.debugOut)
-                            LogWithAddress.WriteLine(string.Format("Connected"));
-                            server.Send(EncodeStr("Hello " + server.RemoteEndPoint.ToString() + " from " + Dns.GetHostName().ToString()));
-
-                            // wait for the reply message
-                            byte[] data = new byte[msgSize];
-                            int receivedDataLength = server.Receive(data); //Wait for the data
-                            string stringData = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
-
-                            lock (LogWithAddress.debugOut)
-                            {
-                                LogWithAddress.WriteLine(string.Format("{0}", stringData)); //Write the data on the screen
-                            }
+                            connection = connection.Accept();
                         }
                         catch
                         {
-                            lock (LogWithAddress.debugOut)
-                            {
-                                LogWithAddress.WriteLine(string.Format("Error"));
-                            }
+                            LogWithAddress.WriteLine(string.Format("Error"));
                         }
+                        #endregion
                     }
                 }
             }
@@ -882,15 +821,16 @@ namespace CoreLib
 
             var containingVC = new Func<StratifiedCallSite, StratifiedVC>(scs => attachedVC[parent[scs]]);
             var reachedBound = false;
-            var tt = TimeSpan.Zero;            
+            var tt = TimeSpan.Zero;
             bool continueWorkingIfNoOneHelped = true;
+            
             while (true)
             {
                 // Lets split when the tree has become big enough
                 var size = di.ComputeSize();
 
                 // if the tree is big enough to split && some available machines are available
-                if ((treesize == 0 && size > 2) || (treesize != 0 && size > treesize + 2))
+                if ((treesize == 0 && size > threshold) || (treesize != 0 && size > treesize + threshold))
                 {
                     var st = DateTime.Now;
 
@@ -954,7 +894,7 @@ namespace CoreLib
                         string scsPersistentID = GetPersistentID(scs);
 
                         // create a SplitState with new calltree + add a new split state: scsID and 1 - means blocking scs
-                        List<Tuple<string, int>> newSplitNodes = new List<Tuple<string, int>> (prevSplitState.SplitingNodes);
+                        List<Tuple<string, int>> newSplitNodes = new List<Tuple<string, int>>(prevSplitState.SplitingNodes);
                         newSplitNodes.Add(new Tuple<string, int>(scsPersistentID, 1));
                         SplitState forOtherMachine = new SplitState(CallTree, newSplitNodes);
 
@@ -962,10 +902,10 @@ namespace CoreLib
                         forOtherMachine.DumpSplitingState(taskFile(newSplitNodes.Count));
 
                         // inform server 
-                        if (server != null)
+                        if (connection != null)
                         {
                             // decisions.Count fileName
-                            server.Send(EncodeStr(decisions.Count.ToString() + ":" + taskFile(newSplitNodes.Count)));
+                            connection.Send(EncodeStr(decisions.Count.ToString() + ":" + taskFile(newSplitNodes.Count)));
                         }
                         #endregion
 
@@ -989,7 +929,7 @@ namespace CoreLib
                         // must reach scs
                         #region export spliting state + must reach scs
                         List<StratifiedCallSite> parents = getParents(scs);
-                                                
+
                         var callsites = new HashSet<StratifiedCallSite>();
                         callsites.UnionWith(parent.Keys);
                         callsites.UnionWith(parent.Values);
@@ -1019,12 +959,12 @@ namespace CoreLib
 
                         // write to file
                         forOtherMachine.DumpSplitingState(taskFile(newSplitNodes.Count));
-                        
+
                         // inform server 
-                        if (server != null)
+                        if (connection != null)
                         {
                             // decisions.Count fileName
-                            server.Send(EncodeStr(decisions.Count.ToString() + ":" + taskFile(newSplitNodes.Count)));
+                            connection.Send(EncodeStr(decisions.Count.ToString() + ":" + taskFile(newSplitNodes.Count)));
                         }
                         #endregion
 
@@ -1094,7 +1034,7 @@ namespace CoreLib
                     }
                 }
                 else
-                {                    
+                {
                     // outcome == Outcome.Correct
                     if (continueWorkingIfNoOneHelped)
                     {
@@ -1104,7 +1044,7 @@ namespace CoreLib
                         var doneBT = false;
                         var npops = 0;
                         do
-                        { 
+                        {
                             if (decisions.Count == 0)
                             {
                                 doneBT = true;
@@ -1130,16 +1070,16 @@ namespace CoreLib
 
                         // TODO: need to handle concurrency
                         // inform server 
-                        if (server != null)
+                        if (connection != null)
                         {
                             // decisions.Count fileName
-                            server.Send(EncodeStr(doingMsg + ":" + taskFile(topDecision.taskID)));
+                            connection.Send(EncodeStr(doingMsg + ":" + taskFile(topDecision.taskID)));
                         }
 
                         // remove the task 
                         File.Delete(taskFile(topDecision.taskID));
                         MacroSI.PRINT("{0}>>> (doing task {1})", indent(decisions.Count), topDecision.taskID);
-                        
+
                         topState.ApplyState(this, ref openCallSites);
                         timeGraph.Pop(npops - 1);
 
@@ -1169,21 +1109,15 @@ namespace CoreLib
                             treesize = di.ComputeSize();
                         }
                     }
-                    
+
                     else
                         break;
                 }
 
             }
             reporter.reportTraceIfNothingToExpand = false;
-
-            #region Close the connection
-            if (server != null)
-            {
-                server.Send(EncodeStr(completionMsg)); 
-            }
-            #endregion
-            Console.WriteLine("Time spent taking decisions: {0} s", tt.TotalSeconds.ToString("F2")); 
+            
+            Console.WriteLine("Time spent taking decisions: {0} s", tt.TotalSeconds.ToString("F2"));
 
             if (outcome == Outcome.Correct && reachedBound) return Outcome.ReachedBound;
             return outcome;
@@ -2139,6 +2073,10 @@ namespace CoreLib
         public override Outcome VerifyImplementation(Implementation impl, VerifierCallback callback)
         {
             startTime = DateTime.UtcNow;
+            if (BoogieVerify.singleConnectionOnly == false)
+            {
+                prover.FullReset(prover.VCExprGen);
+            }
 
             procsHitRecBound = new HashSet<string>();
 
@@ -2222,7 +2160,7 @@ namespace CoreLib
                     var toAdd = new HashSet<StratifiedCallSite>();
                     var toRemove = new HashSet<StratifiedCallSite>();
                     foreach (StratifiedCallSite scs in openCallSites)
-                    {                        
+                    {
                         string nodePersistenID = GetPersistentID(scs);
                         // if node is not in calltree
                         if (!splitState.CallTree.Contains(nodePersistenID))
@@ -2231,7 +2169,7 @@ namespace CoreLib
                         var ss = Expand(scs, null, true, true);
                         if (ss != null) toAdd.UnionWith(ss.CallSites);
 
-                        // check if it was one of the spliting node
+                        // check if it was one of the spliting nodes
                         bool found = false;
                         int splitingType = -1;
                         foreach (var node in splitState.SplitingNodes)
@@ -2242,7 +2180,7 @@ namespace CoreLib
                                 break;
                             }
 
-                        if (found)                        
+                        if (found)
                         {
                             switch (splitingType)
                             {
@@ -2256,7 +2194,7 @@ namespace CoreLib
                                     MacroSI.PRINT(">>> Pushing Block({0})", scs.callSite.calleeName);
                                     applyDecisionToDI(DecisionType.BLOCK, attachedVC[scs]);
                                     // add must-reach constraint
-                                    prover.Assert(scs.callSiteExpr, false);                                                
+                                    prover.Assert(scs.callSiteExpr, false);
                                     break;
                                 default:
                                     break;

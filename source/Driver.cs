@@ -9,6 +9,8 @@ using cba;
 using Microsoft.Boogie.Houdini;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 
 namespace cba
 {
@@ -584,27 +586,169 @@ namespace cba
                 // assign connection
                 BoogieVerify.options.connectionPort = config.connectionPort;
 
-                if (config.staticInlining > 0) BoogieVerify.options.StratifiedInlining = 100;
-                if (config.useDuality) BoogieVerify.options.newStratifiedInlining = false; 
+                if (BoogieVerify.options.connectionPort != null && 
+                    BoogieVerify.singleConnectionOnly == false)
+                {
+                    //Program orgInit = init.Clone() as Program;
+                    //var implementationList = init.Implementations; 
+                    Socket server = null;
+                    int portNumber = 12000; // let skip the user-define port at the moment
+                    int msgSize = 1024; 
+                    string doneMsg = "DONE";
+                    string startMsg = "Start";
+                    string msgSuffix = "split.txt";
+                    string dirSuffix = ".txt";
+                    string workingMsg = "Verifying:";
+                    string completionMsg = "Complete";
+                    // set up connection, corral does not die after each client call
+                    // instead, it stays until it receives DONE message
+                    // this stratergy will save some setup time (2 sec/connection)
+                    var localIP = new Func<string>(() =>
+                    {
+                        var host = Dns.GetHostEntry(Dns.GetHostName());
+                        foreach (var ip in host.AddressList)
+                        {
+                            if (ip.AddressFamily == AddressFamily.InterNetwork)
+                            {
+                                return ip.ToString();
+                            }
+                        }
+                        return null;
+                    });
 
-                var rstatus = BoogieVerify.Verify(init, out err, true);
-                Console.WriteLine("Return status: {0}", rstatus);
-                if (err == null || err.Count == 0)
-                    Console.WriteLine("No bugs found");
+                    var EncodeStr = new Func<string, byte[]>((s) =>
+                    {
+                        return Encoding.ASCII.GetBytes(s);
+                    });
+
+                    IPHostEntry ipHostInfo = Dns.Resolve(Dns.GetHostName());
+                    IPAddress ipAddress = ipHostInfo.AddressList[0];
+                    IPEndPoint localEndPoint = new IPEndPoint(ipAddress, portNumber);
+
+                    while (true)
+                    { 
+                        server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+                        try
+                        {
+                            server.Bind(localEndPoint);
+                            server.Listen(10);
+                            LogWithAddress.WriteLine(string.Format("Waiting for a connection..."));
+                            server = server.Accept(); 
+                            LogWithAddress.WriteLine(string.Format("Client connected"));  
+                            break;
+                        }
+                        catch
+                        {
+                            LogWithAddress.WriteLine(string.Format("Error"));
+                        }
+                    }
+
+                    var sep = new char[1];
+                    sep[0] = ':';
+                    string msg = "";
+                    string prevSIState = config.prevSIState;
+
+                    BoogieVerify.connection = server; 
+                    if (config.staticInlining > 0) BoogieVerify.options.StratifiedInlining = 100;
+                    if (config.useDuality) BoogieVerify.options.newStratifiedInlining = false;
+                    bool running = false;
+                    while (!msg.Equals(doneMsg))
+                    {
+                        //Wait for the data from server
+                        byte[] data = new byte[msgSize];
+                        int receivedDataLength = server.Receive(data);
+                        msg = Encoding.ASCII.GetString(data, 0, receivedDataLength);
+
+                        // contact the server for another task
+                        if (msg.Equals(doneMsg))
+                            break;
+                        else if (running == false)
+                        {
+                            running = true;
+                            // extract prevSIState from msg: start:1split.txt
+                            var split = msg.Split(sep);
+                            if (msg.Equals(startMsg))
+                            {
+                                prevSIState = null;
+                            }
+                            else if (split[0].Equals(startMsg) && split.Length >= 2 && split[1].Contains(msgSuffix))
+                            {
+                                // refine the message just in case of weird message
+                                prevSIState = split[1].Substring(0, split[1].IndexOf(msgSuffix)) + msgSuffix;
+                                // check if the file exists
+                                if (System.IO.File.Exists(prevSIState))
+                                {
+                                    if (System.IO.File.Exists(prevSIState + dirSuffix))
+                                        System.IO.File.Delete(prevSIState + dirSuffix);
+                                    System.IO.File.Move(prevSIState, prevSIState + dirSuffix);
+                                    prevSIState = prevSIState + dirSuffix;
+                                }
+                                else
+                                {
+                                    Debug.Assert(false);
+                                }
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+                        else
+                            continue;
+                        server.Send(EncodeStr(workingMsg + prevSIState));
+                        BoogieVerify.options.prevSIState = prevSIState; 
+
+                        var rstatus = BoogieVerify.Verify(init, out err, true);
+                        Console.WriteLine("Return status: {0}", rstatus);
+                        if (err == null || err.Count == 0)
+                            Console.WriteLine("No bugs found");
+                        else
+                        {
+                            Console.WriteLine("Program has bugs");
+                            foreach (var trace in err.OfType<BoogieAssertErrorTrace>())
+                            {
+                                Console.WriteLine("{0} did not verify", trace.impl.Name);
+                                if (!config.noTrace) trace.cex.Print(0, Console.Out);
+                            }
+                        }
+
+                        Console.WriteLine(string.Format("Number of procedures inlined: {0}", BoogieVerify.CallTreeSize));
+                        Console.WriteLine(string.Format("Total Time: {0} s", BoogieVerify.verificationTime.TotalSeconds.ToString("F2")));
+                        init = BoogieUtil.ReadAndOnlyResolve(config.inputFile);
+                        init.Typecheck();
+                        server.Send(EncodeStr(completionMsg));
+                        running = false;
+                    }
+
+                    if (server != null && server.Connected)
+                        server.Close();
+                    throw new NormalExit("Done");
+                }
                 else
                 {
-                    Console.WriteLine("Program has bugs");
-                    foreach (var trace in err.OfType<BoogieAssertErrorTrace>())
+                    if (config.staticInlining > 0) BoogieVerify.options.StratifiedInlining = 100;
+                    if (config.useDuality) BoogieVerify.options.newStratifiedInlining = false;
+
+                    var rstatus = BoogieVerify.Verify(init, out err, true);
+                    Console.WriteLine("Return status: {0}", rstatus);
+                    if (err == null || err.Count == 0)
+                        Console.WriteLine("No bugs found");
+                    else
                     {
-                        Console.WriteLine("{0} did not verify", trace.impl.Name);
-                        if(!config.noTrace) trace.cex.Print(0, Console.Out);
+                        Console.WriteLine("Program has bugs");
+                        foreach (var trace in err.OfType<BoogieAssertErrorTrace>())
+                        {
+                            Console.WriteLine("{0} did not verify", trace.impl.Name);
+                            if (!config.noTrace) trace.cex.Print(0, Console.Out);
+                        }
                     }
+
+                    Console.WriteLine(string.Format("Number of procedures inlined: {0}", BoogieVerify.CallTreeSize));
+                    Console.WriteLine(string.Format("Total Time: {0} s", BoogieVerify.verificationTime.TotalSeconds.ToString("F2")));
+
+                    throw new NormalExit("Done");
                 }
-
-                Console.WriteLine(string.Format("Number of procedures inlined: {0}", BoogieVerify.CallTreeSize));
-                Console.WriteLine(string.Format("Total Time: {0} s", BoogieVerify.verificationTime.TotalSeconds.ToString("F2")));
-
-                throw new NormalExit("Done");
             }
             #endregion
 

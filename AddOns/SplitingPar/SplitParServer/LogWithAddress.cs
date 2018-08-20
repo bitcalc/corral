@@ -48,13 +48,13 @@ namespace SplitParServer
             {
                 //level = Debug;
             }
-
             switch (level)
             {
                 case Debug:
                     if (!noDebuggingOutput)
                     { 
-                        debugOut.Write(msg);
+                        lock (debugOut)
+                            debugOut.Write(msg);
                     }
                     break;
                 case Warning:
@@ -71,7 +71,8 @@ namespace SplitParServer
                     {
                         Console.Write(msg);
                     }
-                    debugOut.Write(msg);
+                    lock (debugOut)
+                        debugOut.Write(msg);
                     break;
             }
 

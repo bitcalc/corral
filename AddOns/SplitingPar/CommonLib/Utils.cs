@@ -24,12 +24,8 @@ namespace CommonLib
         public static string CompletionMsg = "Complete";
         public static string StartMsg = "Start";
         public static string StartWithCallTreeMsg = "Start:";
-        public static string DoingMsg = "Doing";
-        public static string ResultFile = "result.txt";
-        public static string DoneMsg = "DONE";
-        public static int MsgSize = 1024;
-        public static int ServerPort = 11000;
-        public static int CorralPort = 12000;
+        public static string DoingMsg = "Doing";        
+        public static string DoneMsg = "DONE";        
 
         // paths
         public static string DataDir = "data";
@@ -42,11 +38,21 @@ namespace CommonLib
         public static string PsToolsDir = "pstools";
         public static string PsToolsExe = "psexec.exe";
         public static string ClientConfig = "config-client.xml";
+        public static string ResultFile = "result.txt";
+
+        // for testing purposes
+        public static string NoServer = "noServer";
+        public static string NoCorral = "noCorral";
+        public static string UseLocal = "useLocal";
 
         // other
         public static string ServerLog = "ServerLog.out";
         public static string ClientLog = "ClientLog.out";
         public static string CallTreeSuffix = "split.txt";
+        public static int MsgSize = 1024;
+        public static int ServerPort = 11000;
+        public static int CorralPort = 12000;
+        public static int SleepTime = 500;
         public enum CurrentState { AVAIL, BUSY };
 
         public static HashSet<Process> SpawnedProcesses = new HashSet<Process>();
@@ -81,6 +87,13 @@ namespace CommonLib
                 }
             }
             return null;
+        }
+
+        public static bool SocketConnected(Socket s)
+        {
+            if (s == null)
+                return false;
+            return !(!s.Connected || (s.Poll(1000, SelectMode.SelectRead) && (s.Available == 0)));
         }
 
         public static void runAndSkipOutput(string dir, string cmd, string args)
