@@ -75,12 +75,13 @@ namespace SplitParClient
                 // wait for a message
                 if (!testWithoutServer)
                 {
+                    // wait for the data from server
                     byte[] data = new byte[Utils.MsgSize];
-                    int receivedDataLength = serverConnection.Receive(data); // wait for the data from server
-                    msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); // decode the data received
-                    LogWithAddress.WriteLine(string.Format("{0}", msg)); // log data 
+                    int receivedDataLength = serverConnection.Receive(data);
+                    msg = Encoding.ASCII.GetString(data, 0, receivedDataLength);  
+                    LogWithAddress.WriteLine(string.Format("{0}", msg));  
                 }
-                if (msg.Equals(Utils.DoneMsg))
+                if (msg.Contains(Utils.DoneMsg))
                 {
                     // receive a shutdown signal                       
                     // tell server that he doesnt need to wait
@@ -108,11 +109,11 @@ namespace SplitParClient
 
                     // give corral a task
                     SendTask(msg);
-                    MonitoringCorral();
+                    string result = MonitoringCorral();
 
                     // send completion msg to server 
                     if (!testWithoutServer)
-                        serverConnection.Send(Utils.EncodeStr(Utils.CompletionMsg));
+                        serverConnection.Send(Utils.EncodeStr(result));
                     else
                     {
                         // testing purpose
@@ -175,10 +176,9 @@ namespace SplitParClient
 
                 // wait for the reply message
                 byte[] data = new byte[Utils.MsgSize];
-                int receivedDataLength = serverConnection.Receive(data); //Wait for the data
-                string stringData = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
-
-                LogWithAddress.WriteLine(string.Format("{0}", stringData)); //Write the data on the screen
+                int receivedDataLength = serverConnection.Receive(data);  
+                string stringData = Encoding.ASCII.GetString(data, 0, receivedDataLength);  
+                LogWithAddress.WriteLine(string.Format("{0}", stringData)); 
             }
             catch
             {
@@ -206,8 +206,8 @@ namespace SplitParClient
 
                     byte[] data = new byte[Utils.MsgSize];
                     int receivedDataLength = serverConnection.Receive(data); //Wait for the data
-                    string stringData = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
-                    LogWithAddress.WriteLine(string.Format("{0}", stringData)); //Write the data on the screen
+                    string stringData = Encoding.ASCII.GetString(data, 0, receivedDataLength);  
+                    LogWithAddress.WriteLine(string.Format("{0}", stringData)); 
 
                     // reply the server
                     serverConnection.Send(Utils.EncodeStr("Hi " + serverConnection.RemoteEndPoint.ToString()));
@@ -233,23 +233,19 @@ namespace SplitParClient
 
         }
 
-        static void MonitoringCorral()
+        static string MonitoringCorral()
         {
             var sep = new char[1];
             sep[0] = ':';
 
             string msg = "";
-            while (!msg.Equals(Utils.CompletionMsg))
+            while (!msg.Contains(Utils.CompletionMsg))
             {
-                if (!Utils.SocketConnected(corralConnection))
-                { 
-                    break;
-                }
-
+                //Wait for the data from corral
                 byte[] data = new byte[Utils.MsgSize];
-                int receivedDataLength = corralConnection.Receive(data); //Wait for the data from corral
-                msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
-                if (msg.Equals(Utils.CompletionMsg))
+                int receivedDataLength = corralConnection.Receive(data); 
+                msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); 
+                if (msg.Contains(Utils.CompletionMsg))
                 {
                     // we dont close because it will be used for future msg
                     // corralConnection.Close();
@@ -261,14 +257,14 @@ namespace SplitParClient
                 {
                     if (split[0].Equals(Utils.DoingMsg))
                     {
-                        LogWithAddress.WriteLine(string.Format(Utils.DoingMsg + ":" + split[1])); //Write the data on the screen
-                        //Debug.Assert(jobList.Contains(split[1])); // some package can be lost
+                        LogWithAddress.WriteLine(string.Format(Utils.DoingMsg + ":" + split[1]));  
                     }
                     else
                     {
                         // inform server when new tasks are available
                         if (!testWithoutServer)
                             serverConnection.Send(Utils.EncodeStr(msg));
+
                         // log data
                         LogWithAddress.WriteLine(string.Format(Utils.Indent(int.Parse(split[0])) + ">>> " + split[1]));
                         jobList.Add(split[1]);
@@ -276,6 +272,7 @@ namespace SplitParClient
                 }
             }
             LogWithAddress.WriteLine(string.Format("{0}", msg));
+            return msg;
         }
 
         void SpawnCorral()
@@ -365,8 +362,8 @@ namespace SplitParClient
                 // corral will reply "working"
                 byte[] data = new byte[Utils.MsgSize];
                 int receivedDataLength = corralConnection.Receive(data); //Wait for the data
-                string stringData = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
-                LogWithAddress.WriteLine(string.Format("{0}", stringData)); //Write the data on the screen
+                string stringData = Encoding.ASCII.GetString(data, 0, receivedDataLength);  
+                LogWithAddress.WriteLine(string.Format("{0}", stringData)); 
             }
         }
 

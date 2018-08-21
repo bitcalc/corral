@@ -11,8 +11,9 @@ namespace SplitParServer
 {
     public class ServerListener
     {
-        Socket connection = null;
-        string clientAddress;
+        public Socket connection = null;
+        public string clientAddress;
+        public string currentResult = "OK";
 
         public ServerListener(Socket sk, string clientAddress)
         {
@@ -32,9 +33,10 @@ namespace SplitParServer
                 {                     
                     try
                     {
+                        //Wait for the data from client
                         byte[] data = new byte[Utils.MsgSize];
-                        int receivedDataLength = connection.Receive(data); //Wait for the data from client
-                        msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); //Decode the data received
+                        int receivedDataLength = connection.Receive(data);
+                        msg = Encoding.ASCII.GetString(data, 0, receivedDataLength);  
                     }
                     catch (Exception)
                     {
@@ -47,7 +49,7 @@ namespace SplitParServer
                         break;
                     }
                     
-                    if (msg.Equals(Utils.CompletionMsg))
+                    if (msg.Contains(Utils.CompletionMsg))
                     {
                         // client completed his job
                         lock (SplitParServer.ClientStates)
@@ -55,15 +57,31 @@ namespace SplitParServer
                             SplitParServer.ClientStates[clientAddress] = Utils.CurrentState.AVAIL;
                         }
 
+                        // parse client message: Complete:OK|NOK|RB
+                        var split = msg.Split(sep);
+                        if (split.Length > 1)
+                        {
+                            if (split[1].Equals("NOK"))
+                            {
+                                // kill all clients if they are running
+                                SplitParServer.ForceClose();
+                                currentResult = "NOK";
+                                break;
+                            }
+                            else if (split[1].Equals("RB"))
+                                currentResult = "RB";
+                        } 
                         LogWithAddress.WriteLine(string.Format("Client {0} completed", clientAddress));
                         if (SplitParServer.areClientsBusy())
                         {
                             SplitParServer.DeliverOneTask();
                         }
                         else
-                            SplitParServer.SendDoneMsg();
+                        {
+                            SplitParServer.SendDoneMsg(); 
+                        }
                     }
-                    else if (msg.Equals(Utils.DoneMsg))
+                    else if (msg.Contains(Utils.DoneMsg))
                     {
                         lock (SplitParServer.ClientStates)
                         {

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Management;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -60,8 +61,10 @@ namespace SplitParServer
 
         static void ServerController()
         {
+            var startTime = DateTime.Now;
             numberOfClients = config.RemoteRoots.Count;
             InstallingClients();
+            RefreshClients();
             SpawnClients();
 
             string localIP = Utils.LocalIP();
@@ -98,6 +101,8 @@ namespace SplitParServer
             else
                 new Exception(string.Format("Cannot get local IP"));
 
+            Console.WriteLine("Setting up time = {0} seconds", (DateTime.Now - startTime).TotalSeconds.ToString("F2"));
+
             MonitoringClients();
         }
 
@@ -129,6 +134,11 @@ namespace SplitParServer
                 Installer.RemoteInstall(config.root, config.RemoteRoots[i].value, config.Utils.Select(u => u.dir).Distinct(), force, config.BoogieFiles);
             }
             LogWithAddress.WriteLine(string.Format("Installation Finished."));
+        }
+
+        static void RefreshClients()
+        {
+            ForceClose();
         }
 
         static void SpawnClients()
@@ -288,7 +298,26 @@ namespace SplitParServer
             threads.ForEach(t => t.Start());
             threads.ForEach(t => t.Join());
 
-            Console.WriteLine("Time taken = {0} seconds", (DateTime.Now - starttime).TotalSeconds.ToString("F2"));
+            string result = "OK";
+            string location = "";
+            foreach (var worker in workers) {
+                if (worker.currentResult.Equals("NOK"))
+                {
+                    result = worker.currentResult;
+                    location = worker.clientAddress;
+                    break;
+                }
+                else if (worker.currentResult.Equals("RB"))
+                {
+                    result = worker.currentResult;
+                    location = worker.clientAddress;
+                }
+            }
+            if (location.Length > 0)
+                Console.WriteLine("Return status: {0} @ {1}", result, location);
+            else
+                Console.WriteLine("Return status: {0}", result) ;
+            Console.WriteLine("Verification time = {0} seconds", (DateTime.Now - starttime).TotalSeconds.ToString("F2"));
         }
 
         static void SendFirstMsgToLocalClient()
@@ -461,7 +490,56 @@ namespace SplitParServer
         { 
             foreach (var c in clients)
             {
-                c.Send(Utils.EncodeStr(Utils.DoneMsg));
+                if (Utils.SocketConnected(c))
+                    c.Send(Utils.EncodeStr(Utils.DoneMsg));
+            }
+        }
+
+        static bool CheckIfRunning(string remoteMachine, string app)
+        {
+            return System.Diagnostics.Process.GetProcessesByName(app, remoteMachine).Length > 0 ? true : false;
+        }
+
+        static void StopProcess(string remoteMachine, string processName)
+        {
+            ManagementScope scope = new ManagementScope(string.Format("\\\\{0}\\root\\cimv2", remoteMachine));
+            scope.Connect();
+
+            // WMI query
+            var query = new SelectQuery("select * from Win32_process where name = '" + processName + "'");
+
+            using (var searcher = new ManagementObjectSearcher(scope, query))
+            {
+                foreach (ManagementObject process in searcher.Get()) 
+                {
+                    try
+                    {
+                        process.InvokeMethod("Terminate", null);
+                    }
+                    catch (Exception)
+                    {
+
+                    }
+                }
+            } 
+        }
+
+        public static void ForceClose()
+        {
+            lock (ClientStates)
+            {
+                foreach (var c in ClientStates)
+                {
+                    string remoteMachine = Utils.GetRemoteMachineName(c.Key);
+                    // kill Z3
+                    StopProcess(remoteMachine, "Z3.exe");
+                    // kill Corral        
+                    StopProcess(remoteMachine, "corral.exe");
+                    // kill SplitParClient
+                    StopProcess(remoteMachine, "SplitParClient.exe");
+                    // kill pstool
+                    StopProcess(remoteMachine, "PsExec.exe");
+                }
             }
         }
 
@@ -539,7 +617,8 @@ namespace SplitParServer
                                 }
 
                                 // send the task to client
-                                clients[socketMap[client.Key]].Send(Utils.EncodeStr(Utils.StartWithCallTreeMsg + System.IO.Path.GetFileName(callTreeDir)));
+                                if (Utils.SocketConnected(clients[socketMap[client.Key]]))
+                                    clients[socketMap[client.Key]].Send(Utils.EncodeStr(Utils.StartWithCallTreeMsg + System.IO.Path.GetFileName(callTreeDir)));
                             }
 
                             // remove the task

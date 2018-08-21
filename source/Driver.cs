@@ -700,6 +700,18 @@ namespace cba
                         BoogieVerify.options.prevSIState = prevSIState; 
 
                         var rstatus = BoogieVerify.Verify(init, out err, true);
+                        switch (rstatus)
+                        {
+                            case BoogieVerify.ReturnStatus.NOK:
+                                server.Send(EncodeStr(completionMsg + ":NOK"));
+                                break;
+                            case BoogieVerify.ReturnStatus.OK:
+                                server.Send(EncodeStr(completionMsg + ":OK"));
+                                break;
+                            default:
+                                server.Send(EncodeStr(completionMsg + ":RB"));
+                                break;
+                        }
                         Console.WriteLine("Return status: {0}", rstatus);
                         if (err == null || err.Count == 0)
                             Console.WriteLine("No bugs found");
@@ -717,7 +729,7 @@ namespace cba
                         Console.WriteLine(string.Format("Total Time: {0} s", BoogieVerify.verificationTime.TotalSeconds.ToString("F2")));
                         init = BoogieUtil.ReadAndOnlyResolve(config.inputFile);
                         init.Typecheck();
-                        server.Send(EncodeStr(completionMsg));
+                        
                         running = false;
                     }
 

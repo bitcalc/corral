@@ -214,6 +214,11 @@ namespace CoreLib
             SplitingNodes.Add(split);
         }
 
+        public void Pop()
+        {
+            SplitingNodes.RemoveAt(SplitingNodes.Count - 1);
+        }
+
         public SplitState GetSplitState(string file)
         {
             if (file == null || !System.IO.File.Exists(file))
@@ -823,7 +828,7 @@ namespace CoreLib
             var reachedBound = false;
             var tt = TimeSpan.Zero;
             bool continueWorkingIfNoOneHelped = true;
-            
+            int fileCounter = 0;
             while (true)
             {
                 // Lets split when the tree has become big enough
@@ -898,14 +903,15 @@ namespace CoreLib
                         newSplitNodes.Add(new Tuple<string, int>(scsPersistentID, 1));
                         SplitState forOtherMachine = new SplitState(CallTree, newSplitNodes);
 
+                        fileCounter++;
                         // write to file
-                        forOtherMachine.DumpSplitingState(taskFile(newSplitNodes.Count));
+                        forOtherMachine.DumpSplitingState(taskFile(fileCounter));
 
                         // inform server 
                         if (connection != null)
                         {
                             // decisions.Count fileName
-                            connection.Send(EncodeStr(decisions.Count.ToString() + ":" + taskFile(newSplitNodes.Count)));
+                            connection.Send(EncodeStr(decisions.Count.ToString() + ":" + taskFile(fileCounter)));
                         }
                         #endregion
 
@@ -916,7 +922,7 @@ namespace CoreLib
 
                         Push();
                         backtrackingPoints.Push(SiState.SaveState(this, openCallSites));
-                        decisions.Push(new DecisionWithTaskID(DecisionType.MUST_REACH, 0, scs, newSplitNodes.Count));
+                        decisions.Push(new DecisionWithTaskID(DecisionType.MUST_REACH, 0, scs, fileCounter));
                         applyDecisionToDI(DecisionType.MUST_REACH, attachedVC[scs]);
                         prevMustAsserted.Push(AssertMustReach(attachedVC[scs], PrevAsserted()));
                         prevSplitState.RecordNewSplit(new Tuple<string, int>(scsPersistentID, 0));
@@ -924,7 +930,7 @@ namespace CoreLib
 
                         tt += (DateTime.Now - st);
                     }
-                    else
+                    else 
                     {
                         // must reach scs
                         #region export spliting state + must reach scs
@@ -945,8 +951,7 @@ namespace CoreLib
                         CallTree = new HashSet<string>();
                         callsites.Iter(cs =>
                         {
-                            string tmp = GetPersistentID(cs);
-                            //LogWithAddress.WriteLine(tmp);
+                            string tmp = GetPersistentID(cs); 
                             CallTree.Add(tmp);
                         });
 
@@ -957,14 +962,15 @@ namespace CoreLib
                         newSplitNodes.Add(new Tuple<string, int>(scsPersistentID, 0));
                         SplitState forOtherMachine = new SplitState(CallTree, newSplitNodes);
 
+                        fileCounter++;
                         // write to file
-                        forOtherMachine.DumpSplitingState(taskFile(newSplitNodes.Count));
+                        forOtherMachine.DumpSplitingState(taskFile(fileCounter));
 
                         // inform server 
                         if (connection != null)
                         {
                             // decisions.Count fileName
-                            connection.Send(EncodeStr(decisions.Count.ToString() + ":" + taskFile(newSplitNodes.Count)));
+                            connection.Send(EncodeStr(decisions.Count.ToString() + ":" + taskFile(fileCounter)));
                         }
                         #endregion
 
@@ -976,7 +982,7 @@ namespace CoreLib
                         Push();
                         backtrackingPoints.Push(SiState.SaveState(this, openCallSites));
                         prevMustAsserted.Push(new List<Tuple<StratifiedVC, Block>>());
-                        decisions.Push(new DecisionWithTaskID(DecisionType.BLOCK, 0, scs, newSplitNodes.Count));
+                        decisions.Push(new DecisionWithTaskID(DecisionType.BLOCK, 0, scs, fileCounter));
                         applyDecisionToDI(DecisionType.BLOCK, maxVc);
                         prevSplitState.RecordNewSplit(new Tuple<string, int>(scsPersistentID, 1));
                         prover.Assert(scs.callSiteExpr, false);
@@ -1038,6 +1044,7 @@ namespace CoreLib
                     // outcome == Outcome.Correct
                     if (continueWorkingIfNoOneHelped)
                     {
+                        findAvailableTask:
                         DecisionWithTaskID topDecision = null;
                         SiState topState = SiState.SaveState(this, openCallSites);
                         timeGraph.AddEdgeDone(decisions.Count == 0 ? "" : decisions.Peek().decisionType.ToString());
@@ -1059,6 +1066,8 @@ namespace CoreLib
                             decisions.Pop();
                             backtrackingPoints.Pop();
                             prevMustAsserted.Pop();
+                            prevSplitState.Pop();
+
                             npops++;
                             MacroSI.PRINT("{0}>>> Pop", indent(decisions.Count));
                             if (topDecision.num == 0 && !taskExists(topDecision.taskID) && topDecision.taskID > 0)
@@ -1077,7 +1086,15 @@ namespace CoreLib
                         }
 
                         // remove the task 
-                        File.Delete(taskFile(topDecision.taskID));
+                        try
+                        {
+                            File.Delete(taskFile(topDecision.taskID));
+                            //File.Move(taskFile(topDecision.taskID), "__" + taskFile(topDecision.taskID));
+                        }
+                        catch (Exception)
+                        {
+                            goto findAvailableTask;
+                        }
                         MacroSI.PRINT("{0}>>> (doing task {1})", indent(decisions.Count), topDecision.taskID);
 
                         topState.ApplyState(this, ref openCallSites);
@@ -1096,6 +1113,7 @@ namespace CoreLib
                             decisions.Push(new DecisionWithTaskID(DecisionType.BLOCK, 1, topDecision.cs, 0));
                             applyDecisionToDI(DecisionType.BLOCK, attachedVC[topDecision.cs]);
                             prevMustAsserted.Push(new List<Tuple<StratifiedVC, Block>>());
+                            prevSplitState.RecordNewSplit(new Tuple<string, int>(GetPersistentID(topDecision.cs), 1));
                             treesize = di.ComputeSize();
                         }
                         else
@@ -1106,6 +1124,7 @@ namespace CoreLib
                             applyDecisionToDI(DecisionType.MUST_REACH, attachedVC[topDecision.cs]);
                             prevMustAsserted.Push(
                                AssertMustReach(attachedVC[topDecision.cs], PrevAsserted()));
+                            prevSplitState.RecordNewSplit(new Tuple<string, int>(GetPersistentID(topDecision.cs), 0));
                             treesize = di.ComputeSize();
                         }
                     }
@@ -2075,7 +2094,7 @@ namespace CoreLib
             startTime = DateTime.UtcNow;
             if (BoogieVerify.singleConnectionOnly == false)
             {
-                prover.FullReset(prover.VCExprGen);
+                //prover.FullReset(prover.VCExprGen);
             }
 
             procsHitRecBound = new HashSet<string>();
