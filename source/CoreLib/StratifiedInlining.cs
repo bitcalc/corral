@@ -252,7 +252,7 @@ namespace CoreLib
     /* stratified inlining technique */
     public class StratifiedInlining : StratifiedVCGenBase
     {
-        public static readonly string ForceInlineAttr = "ForceInline"; 
+        public static readonly string ForceInlineAttr = "ForceInline";
 
         public Stats stats;
 
@@ -715,10 +715,15 @@ namespace CoreLib
             var decisions = new Stack<DecisionWithTaskID>();
             var timeGraph = new TimeGraph();
             string exportSuffix = "split.txt";
+            string exportPrefix = "";
+            if (BoogieVerify.options.prevSIState != null)
+            {
+                string tmpFileName = Path.GetFileName(BoogieVerify.options.prevSIState);
+                exportPrefix = tmpFileName.Substring(0, tmpFileName.IndexOf(exportSuffix)) + "_";
+            }
             string readyMsg = "Client is ready";
             string completionMsg = "Complete";
             string doingMsg = "Doing";
-            int portNumber = 12000; // let skip the user-define port at the moment
             int msgSize = 1024;
             int threshold = 5;
             int treesize = di.ComputeSize();
@@ -728,50 +733,6 @@ namespace CoreLib
             {
                 return Encoding.ASCII.GetBytes(s);
             });
-
-            #region Set up the connection
-            if (cba.Util.BoogieVerify.options.connectionPort != null)
-            {
-                var localIP = new Func<string>(() =>
-                {
-                    var host = Dns.GetHostEntry(Dns.GetHostName());
-                    foreach (var ip in host.AddressList)
-                    {
-                        if (ip.AddressFamily == AddressFamily.InterNetwork)
-                        {
-                            return ip.ToString();
-                        }
-                    }
-                    return null;
-                });
-
-                if (System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable())
-                {
-                    if (!connection.Connected)
-                    {
-                        #region this part is moved to Driver.cs
-                        IPHostEntry ipHostInfo = Dns.Resolve(Dns.GetHostName());
-                        IPAddress ipAddress = ipHostInfo.AddressList[0];
-                        IPEndPoint localEndPoint = new IPEndPoint(ipAddress, portNumber);
-
-                        connection = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-                        try
-                        {
-                            connection.Bind(localEndPoint);
-                            connection.Listen(10);
-                            LogWithAddress.WriteLine(string.Format("Waiting for a connection..."));
-                            connection = connection.Accept();
-                        }
-                        catch
-                        {
-                            LogWithAddress.WriteLine(string.Format("Error"));
-                        }
-                        #endregion
-                    }
-                }
-            }
-            #endregion
 
             var indent = new Func<int, string>(i =>
             {
@@ -806,20 +767,21 @@ namespace CoreLib
             var decideToBlockOrReach = new Func<bool>(() =>
             {
                 if (prevSplitState.SplitingNodes.Count == 0)
-                    return true; // rand.Next(100) != 0;
+                    return true;
                 else
                     return false;
             });
 
             var taskFile = new Func<int, string>((taskID) =>
             {
-                return taskID + exportSuffix;
+
+                return exportPrefix + taskID + exportSuffix;
             });
 
             var taskExists = new Func<int, bool>((taskID) =>
             {
                 if (File.Exists(taskFile(taskID)))
-                    return true; // rand.Next(100) != 0;
+                    return true;
                 else
                     return false;
             });
@@ -853,7 +815,7 @@ namespace CoreLib
                         {
                             toRemove.Add(vc);
                             continue;
-                        }
+                        } 
 
                         var score = Math.Min(sizes[vc].Count, disj[vc]);
                         if (score >= maxVcScore)
@@ -930,7 +892,7 @@ namespace CoreLib
 
                         tt += (DateTime.Now - st);
                     }
-                    else 
+                    else
                     {
                         // must reach scs
                         #region export spliting state + must reach scs
@@ -951,7 +913,7 @@ namespace CoreLib
                         CallTree = new HashSet<string>();
                         callsites.Iter(cs =>
                         {
-                            string tmp = GetPersistentID(cs); 
+                            string tmp = GetPersistentID(cs);
                             CallTree.Add(tmp);
                         });
 
@@ -1077,7 +1039,6 @@ namespace CoreLib
                         if (doneBT)
                             break;
 
-                        // TODO: need to handle concurrency
                         // inform server 
                         if (connection != null)
                         {
@@ -1089,10 +1050,10 @@ namespace CoreLib
                         try
                         {
                             File.Delete(taskFile(topDecision.taskID));
-                            //File.Move(taskFile(topDecision.taskID), "__" + taskFile(topDecision.taskID));
                         }
                         catch (Exception)
                         {
+                            //LogWithAddress.WriteLine(LogWithAddress.Debug, "{0} is not available", taskFile(topDecision.taskID));
                             goto findAvailableTask;
                         }
                         MacroSI.PRINT("{0}>>> (doing task {1})", indent(decisions.Count), topDecision.taskID);
@@ -1135,7 +1096,7 @@ namespace CoreLib
 
             }
             reporter.reportTraceIfNothingToExpand = false;
-            
+
             Console.WriteLine("Time spent taking decisions: {0} s", tt.TotalSeconds.ToString("F2"));
 
             if (outcome == Outcome.Correct && reachedBound) return Outcome.ReachedBound;
@@ -1171,18 +1132,18 @@ namespace CoreLib
             });
 
             var applyDecisionToDI = new Action<DecisionType, StratifiedVC>((d, n) =>
-               {
-                   if (d == DecisionType.BLOCK)
-                   {
-                       di.DeleteNode(n);
-                   }
-                   if (d == DecisionType.MUST_REACH)
-                   {
-                       var disj = di.DisjointNodes(n);
+            {
+                if (d == DecisionType.BLOCK)
+                {
+                    di.DeleteNode(n);
+                }
+                if (d == DecisionType.MUST_REACH)
+                {
+                    var disj = di.DisjointNodes(n);
 
-                       disj.Iter(m => di.DeleteNode(m));
-                   }
-               });
+                    disj.Iter(m => di.DeleteNode(m));
+                }
+            });
 
             var containingVC = new Func<StratifiedCallSite, StratifiedVC>(scs => attachedVC[parent[scs]]);
 
@@ -1396,20 +1357,20 @@ namespace CoreLib
             });
 
             var PrevAsserted = new Func<HashSet<Tuple<StratifiedVC, Block>>>(() =>
-                {
-                    var ret = new HashSet<Tuple<StratifiedVC, Block>>();
-                    prevMustAsserted.ToList().Iter(ls =>
-                        ls.Iter(tup => ret.Add(tup)));
-                    return ret;
-                });
+            {
+                var ret = new HashSet<Tuple<StratifiedVC, Block>>();
+                prevMustAsserted.ToList().Iter(ls =>
+                    ls.Iter(tup => ret.Add(tup)));
+                return ret;
+            });
 
             var rand = new Random();
             var reachedBound = false;
 
             var decideToInline = new Func<bool>(() =>
-                {
-                    return false; // rand.Next(100) != 0;
-                });
+            {
+                return false; // rand.Next(100) != 0;
+            });
 
             while (true)
             {
@@ -2048,15 +2009,15 @@ namespace CoreLib
             var indexLast = svc.info.interfaceExprVars.FindLastIndex(x => x.Name.Contains(cba.Util.BoogieVerify.assertsPassed));
 
             var AssertVar = new Action<int, bool>((index, b) =>
+            {
+                if (cba.Util.BoogieVerify.assertsPassedIsInt)
                 {
-                    if (cba.Util.BoogieVerify.assertsPassedIsInt)
-                    {
-                        Microsoft.Basetypes.BigNum zero = Microsoft.Basetypes.BigNum.FromInt(0);
-                        prover.Assert(prover.VCExprGen.Eq(svc.interfaceExprVars[index], prover.VCExprGen.Integer(zero)), b);
-                    }
-                    else
-                        prover.Assert(svc.interfaceExprVars[index], b);
-                });
+                    Microsoft.Basetypes.BigNum zero = Microsoft.Basetypes.BigNum.FromInt(0);
+                    prover.Assert(prover.VCExprGen.Eq(svc.interfaceExprVars[index], prover.VCExprGen.Integer(zero)), b);
+                }
+                else
+                    prover.Assert(svc.interfaceExprVars[index], b);
+            });
 
             // assertVar[First] is not set
             AssertVar(indexFirst, true);
@@ -2319,7 +2280,6 @@ namespace CoreLib
             else if (cba.Util.BoogieVerify.options.newStratifiedInliningAlgo.ToLower() == "splitpar" && !di.disabled)
             {
                 var startTimer = DateTime.Now;
-                LogWithAddress.WriteLine(Log.Debug, "Entering MustReachSplitParallelControler zone");
                 Debug.Assert(CommandLineOptions.Clo.UseLabels == false);
                 outcome = MustReachSplitParallelStyle(splitState, openCallSites, reporter);
                 var endTimer = DateTime.Now;
@@ -2561,13 +2521,13 @@ namespace CoreLib
         {
             var name2VC = new Dictionary<string, StratifiedVC>();
             var getSVC = new Func<string, StratifiedVC>(name =>
-                {
-                    if (name2VC.ContainsKey(name))
-                        return name2VC[name];
-                    var tt = new StratifiedVC(implName2StratifiedInliningInfo[name], implementations);
-                    name2VC.Add(name, tt);
-                    return tt;
-                });
+            {
+                if (name2VC.ContainsKey(name))
+                    return name2VC[name];
+                var tt = new StratifiedVC(implName2StratifiedInliningInfo[name], implementations);
+                name2VC.Add(name, tt);
+                return tt;
+            });
 
             Push();
 
@@ -3805,11 +3765,11 @@ namespace CoreLib
             if (strategy != MERGING_STRATEGY.OPT)
             {
                 var NodeToCalls = new Func<DagNode, List<Tuple<DagNode, int, string>>>(n =>
-                    {
-                        var r = new List<Tuple<DagNode, int, string>>();
-                        implToCalls[n.ImplName].Iter(t => r.Add(Tuple.Create(n, t.Item1, t.Item2)));
-                        return r;
-                    });
+                {
+                    var r = new List<Tuple<DagNode, int, string>>();
+                    implToCalls[n.ImplName].Iter(t => r.Add(Tuple.Create(n, t.Item1, t.Item2)));
+                    return r;
+                });
 
                 var opencalls = new List<Tuple<DagNode, int, string>>();
                 opencalls.AddRange(NodeToCalls(Root));
@@ -3897,15 +3857,15 @@ namespace CoreLib
                 var idsExtended = new HashSet<string> { rootid };
 
                 lazyExtendDag = new Action<string>(id =>
+                {
+                    foreach (var n in sorted)
                     {
-                        foreach (var n in sorted)
-                        {
-                            if (idsExtended.Contains(n)) continue;
-                            idsExtended.Add(n);
-                            ExtendAndCompress(n, idgraph, idToProc, implToCalls, id2numnodes);
-                            if (n == id) break;
-                        }
-                    });
+                        if (idsExtended.Contains(n)) continue;
+                        idsExtended.Add(n);
+                        ExtendAndCompress(n, idgraph, idToProc, implToCalls, id2numnodes);
+                        if (n == id) break;
+                    }
+                });
 
                 if (lazy)
                     return 0;

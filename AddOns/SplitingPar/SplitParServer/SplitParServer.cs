@@ -26,6 +26,7 @@ namespace SplitParServer
         static bool testWithoutCorral = false;
         static bool useLocalMachine = false;
         static bool started = false;
+        static bool saveLog = false;
 
         public enum Outcome
         {
@@ -44,12 +45,16 @@ namespace SplitParServer
 
             #region for testing purposes
             for (int i = 0; i < args.Length; ++i)
+            {
                 if (args[i].Equals(Utils.NoServer))
                     testWithoutServer = true;
                 else if (args[i].Equals(Utils.NoCorral))
                     testWithoutCorral = true;
                 else if (args[i].Equals(Utils.UseLocal))
                     useLocalMachine = true;
+                else if (args[i].Equals(Utils.SaveResult))
+                    saveLog = true;
+            }
             #endregion
 
             config = Utils.LoadConfig(args[0]);
@@ -63,7 +68,7 @@ namespace SplitParServer
         {
             var startTime = DateTime.Now;
             numberOfClients = config.RemoteRoots.Count;
-            InstallingClients();
+            InstallClients();
             RefreshClients();
             SpawnClients();
 
@@ -101,13 +106,20 @@ namespace SplitParServer
             else
                 new Exception(string.Format("Cannot get local IP"));
 
-            Console.WriteLine("Setting up time = {0} seconds", (DateTime.Now - startTime).TotalSeconds.ToString("F2"));
+            double setupTime = (DateTime.Now - startTime).TotalSeconds;
+            Console.WriteLine("Setting up time = {0} seconds", setupTime.ToString("F2"));
 
-            MonitoringClients();
+            startTime = DateTime.Now;
+            string result = MonitorClients();
+            double runningTime = (DateTime.Now - startTime).TotalSeconds;
+
+            if (saveLog)
+                WriteStatistics(config.BoogieFiles[0].value, runningTime, ClientStates.Count, result);
+            LogWithAddress.Close();
         }
 
 
-        static void InstallingClients()
+        static void InstallClients()
         {
             var force = true;
             LogWithAddress.WriteLine(string.Format("Checking self installation"));
@@ -214,9 +226,9 @@ namespace SplitParServer
                     }
                 }
             }
-            catch
+            catch (Exception e)
             {
-                LogWithAddress.WriteLine(string.Format("Cannot connect to Server"));
+                LogWithAddress.WriteLine(string.Format("Cannot connect to SplitParClient {0}", e.ToString()));
             }
 
         }
@@ -256,10 +268,8 @@ namespace SplitParServer
                 LogWithAddress.WriteLine(string.Format("Error"));
             }
         }
-
-
-
-        static void MonitoringClients()
+        
+        static string MonitorClients()
         {
             var threads = new List<Thread>();
             var workers = new List<ServerListener>();
@@ -298,26 +308,45 @@ namespace SplitParServer
             threads.ForEach(t => t.Start());
             threads.ForEach(t => t.Join());
 
+            string bugAddress = "";
+            string result = ExtractResult(workers, out bugAddress);
+
+            if (bugAddress.Length > 0)
+                Console.WriteLine("Return status: {0} @ {1}", result, bugAddress);
+            else
+                Console.WriteLine("Return status: {0}", result);
+            Console.WriteLine("Verification time = {0} seconds", (DateTime.Now - starttime).TotalSeconds.ToString("F2"));
+            return result;
+        }
+
+        static string ExtractResult(List<ServerListener> workers, out string bugAddress)
+        {
             string result = "OK";
-            string location = "";
-            foreach (var worker in workers) {
+            bugAddress = "";
+            foreach (var worker in workers)
+            {
                 if (worker.currentResult.Equals("NOK"))
                 {
                     result = worker.currentResult;
-                    location = worker.clientAddress;
+                    bugAddress = worker.clientAddress;
                     break;
                 }
                 else if (worker.currentResult.Equals("RB"))
                 {
                     result = worker.currentResult;
-                    location = worker.clientAddress;
+                    bugAddress = worker.clientAddress;
                 }
             }
-            if (location.Length > 0)
-                Console.WriteLine("Return status: {0} @ {1}", result, location);
-            else
-                Console.WriteLine("Return status: {0}", result) ;
-            Console.WriteLine("Verification time = {0} seconds", (DateTime.Now - starttime).TotalSeconds.ToString("F2"));
+            return result;            
+        }
+
+        static void WriteStatistics(string fileName, double runningTime, int clients, string result)
+        {
+            var path = System.IO.Path.Combine(config.root, Utils.RunDir, Utils.LogResult);
+            using (StreamWriter sw = File.AppendText(path))
+            {
+                sw.WriteLine(string.Format("{0} {1, 50} {2, 10}s {3, 10} clients {4, 10}", DateTime.Now.ToString(), fileName, runningTime.ToString("F2"), clients, result)); 
+            }
         }
 
         static void SendFirstMsgToLocalClient()
@@ -486,6 +515,16 @@ namespace SplitParServer
             return false;
         }
 
+        public static bool areClientsAvail()
+        {
+            lock (ClientStates)
+            {
+                if (ClientStates.Any(client => client.Value == Utils.CurrentState.AVAIL))
+                    return true;
+            }
+            return false;
+        }
+
         public static void SendDoneMsg()
         { 
             foreach (var c in clients)
@@ -518,7 +557,7 @@ namespace SplitParServer
                     }
                     catch (Exception)
                     {
-
+                        LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot terminate {0} at {1}", remoteMachine, processName);
                     }
                 }
             } 
@@ -538,7 +577,7 @@ namespace SplitParServer
                     // kill SplitParClient
                     StopProcess(remoteMachine, "SplitParClient.exe");
                     // kill pstool
-                    StopProcess(remoteMachine, "PsExec.exe");
+                    StopProcess(remoteMachine, "PsExec Service");
                 }
             }
         }
@@ -581,13 +620,23 @@ namespace SplitParServer
                                 {
                                     string dir = System.IO.Path.Combine(config.root, Utils.RunDir, System.IO.Path.GetFileName(callTreeDir));
                                     if (System.IO.File.Exists(dir))
-                                        System.IO.File.Delete(dir);
+                                    {
+                                        try
+                                        {
+                                            System.IO.File.Delete(dir);
+                                        }
+                                        catch (Exception)
+                                        {
+                                            LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot remove file {0}", dir);
+                                        }
+                                    }
                                     try
                                     {
                                         System.IO.File.Move(callTreeDir, dir);
                                     }
                                     catch (Exception)
                                     {
+                                        LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot move file {0} to {1}", callTreeDir, dir);
                                         continue;
                                     }
                                 }
@@ -598,13 +647,23 @@ namespace SplitParServer
                                         string dir = System.IO.Path.Combine(client.Key, Utils.RunDir, System.IO.Path.GetFileName(callTreeDir));
                                         // find remote client
                                         if (System.IO.File.Exists(dir))
-                                            System.IO.File.Delete(dir);
+                                        {
+                                            try
+                                            {
+                                                System.IO.File.Delete(dir);
+                                            }
+                                            catch (Exception)
+                                            {
+                                                LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot remove file {0}", dir);
+                                            }
+                                        }
                                         try
                                         {
                                             System.IO.File.Move(callTreeDir, dir);
                                         }
                                         catch (Exception)
                                         {
+                                            LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot move file {0} to {1}", callTreeDir, dir);
                                             continue;
                                         }
                                     }
@@ -643,10 +702,7 @@ namespace SplitParServer
             LogWithAddress.Close();
             lock (Utils.SpawnedProcesses)
             {
-                //foreach (var p in Utils.SpawnedProcesses) 
-                //{
-                //    p.Kill();
-                //}
+                ForceClose();
                 Utils.SpawnedProcesses.Clear();
             }
             System.Diagnostics.Process.GetCurrentProcess().Kill();

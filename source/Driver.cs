@@ -589,8 +589,7 @@ namespace cba
                 if (BoogieVerify.options.connectionPort != null && 
                     BoogieVerify.singleConnectionOnly == false)
                 {
-                    //Program orgInit = init.Clone() as Program;
-                    //var implementationList = init.Implementations; 
+                    //Program orgInit = init.Clone() as Program; 
                     Socket server = null;
                     int portNumber = 12000; // let skip the user-define port at the moment
                     int msgSize = 1024; 
@@ -735,6 +734,8 @@ namespace cba
 
                     if (server != null && server.Connected)
                         server.Close();
+                    LogWithAddress.Close();
+                    Log.Close();
                     throw new NormalExit("Done");
                 }
                 else
@@ -758,7 +759,8 @@ namespace cba
 
                     Console.WriteLine(string.Format("Number of procedures inlined: {0}", BoogieVerify.CallTreeSize));
                     Console.WriteLine(string.Format("Total Time: {0} s", BoogieVerify.verificationTime.TotalSeconds.ToString("F2")));
-
+                    LogWithAddress.Close();
+                    Log.Close();
                     throw new NormalExit("Done");
                 }
             }

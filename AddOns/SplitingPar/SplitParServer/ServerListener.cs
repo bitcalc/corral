@@ -44,11 +44,11 @@ namespace SplitParServer
                         {
                             SplitParServer.ClientStates[clientAddress] = Utils.CurrentState.AVAIL;
                         }
-                        LogWithAddress.WriteLine(string.Format("{0} close because of an unknown reason: {1}", clientAddress, msg));
+                        LogWithAddress.WriteLine(string.Format("{0} close because a counterexample is found: {1}", clientAddress, msg));
                         Finish();
                         break;
                     }
-                    
+
                     if (msg.Contains(Utils.CompletionMsg))
                     {
                         // client completed his job
@@ -70,7 +70,7 @@ namespace SplitParServer
                             }
                             else if (split[1].Equals("RB"))
                                 currentResult = "RB";
-                        } 
+                        }
                         LogWithAddress.WriteLine(string.Format("Client {0} completed", clientAddress));
                         if (SplitParServer.areClientsBusy())
                         {
@@ -78,7 +78,7 @@ namespace SplitParServer
                         }
                         else
                         {
-                            SplitParServer.SendDoneMsg(); 
+                            SplitParServer.SendDoneMsg();
                         }
                     }
                     else if (msg.Contains(Utils.DoneMsg))
@@ -91,6 +91,30 @@ namespace SplitParServer
                         // clients & server completed their job
                         Finish();
                         break;
+                    }
+                    else if (msg.Contains(Utils.DoingMsg))
+                    {
+                        // task to remove
+                        var split = msg.Split(sep);
+                        //LogWithAddress.WriteLine(msg);
+                        if (split.Length > 1)
+                        {
+                            var fileName = split[1];
+                            if (fileName.Contains(Utils.CallTreeSuffix))
+                            {
+                                fileName = fileName.Substring(0, fileName.IndexOf(Utils.CallTreeSuffix)) + Utils.CallTreeSuffix;
+                                lock (SplitParServer.BplTasks)
+                                {
+                                    for (int i = 0; i < SplitParServer.BplTasks.Count; ++i)
+                                        if (SplitParServer.BplTasks[i].author.Equals(clientAddress) &&
+                                            SplitParServer.BplTasks[i].callTreeDir.Equals(fileName))
+                                        {
+                                            SplitParServer.BplTasks.RemoveAt(i);
+                                            break;
+                                        }
+                                }
+                            }
+                        }
                     }
                     else
                     {
@@ -111,7 +135,8 @@ namespace SplitParServer
                                     SplitParServer.BplTasks.Add(newTask);
                                     //LogWithAddress.WriteLine(string.Format("Add new task: {0}", newTask.ToString()));
                                 }
-                                SplitParServer.DeliverOneTask();
+                                if (SplitParServer.areClientsAvail())
+                                    SplitParServer.DeliverOneTask();
                             }
                         }
                     }

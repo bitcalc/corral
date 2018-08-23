@@ -41,9 +41,11 @@ namespace CommonLib
         public static string ResultFile = "result.txt";
 
         // for testing purposes
-        public static string NoServer = "noServer";
-        public static string NoCorral = "noCorral";
-        public static string UseLocal = "useLocal";
+        public static string NoServer = "/noServer";
+        public static string NoCorral = "/noCorral";
+        public static string UseLocal = "/useLocal";
+        public static string SaveResult = "/saveResult";
+        public static string LogResult = "allResults.txt";
 
         // other
         public static string ServerLog = "ServerLog.out";
@@ -61,6 +63,12 @@ namespace CommonLib
         public static SplitParConfig LoadConfig(string configFile)
         {
             return SplitParConfig.DeSerialize(configFile);
+        }
+
+        public static string GetArg(string str, int n)
+        {
+            var sp = str.Split(new char[] { ':' }, StringSplitOptions.RemoveEmptyEntries);
+            return sp[n];
         }
 
         public static byte[] EncodeStr(string msg)

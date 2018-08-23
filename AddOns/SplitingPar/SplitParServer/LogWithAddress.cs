@@ -94,7 +94,10 @@ namespace SplitParServer
         {
             if (noDebuggingOutput)
                 return true;
-            return Write(level, file.Substring(file.LastIndexOf("\\")) + "\\" + member + ":" + line + "\t" + msg + Environment.NewLine);
+            if (file.LastIndexOf("\\") >= 0)
+                return Write(level, file.Substring(file.LastIndexOf("\\")) + "\\" + member + ":" + line + "\t" + msg + Environment.NewLine);
+            else
+                return Write(level, file + "\\" + member + ":" + line + "\t" + msg + Environment.NewLine);
         }
 
         public static bool WriteLine(string msg,

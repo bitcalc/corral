@@ -43,6 +43,8 @@ namespace SplitParClient
 
         static void ClientController(params string[] args)
         {
+            double workingTime = 0;
+            
             if (false)
             {
                 #region do not use it
@@ -66,6 +68,7 @@ namespace SplitParClient
             }
 
             ConnectCorral();
+            var startClientTime = DateTime.Now;
 
             string msg = Utils.StartMsg;
             int cnt = 0;
@@ -91,6 +94,7 @@ namespace SplitParClient
                 }
                 else if (msg.Contains(Utils.StartMsg))
                 {
+                    var startTime = DateTime.Now;
                     // receive a working signal
                     if (!msg.Equals(Utils.StartMsg))
                     {
@@ -105,11 +109,13 @@ namespace SplitParClient
                             config.Utils[0].arguments = config.Utils[0].arguments;
                             //config.Utils[0].arguments = config.Utils[0].arguments + " /prevSIState:" + split[1];
                         }
-                    }                   
+                    }
+                    LogWithAddress.WriteLine(string.Format("Received a task."));
 
                     // give corral a task
                     SendTask(msg);
-                    string result = MonitoringCorral();
+                    string result = MonitorCorral();
+                    workingTime += (DateTime.Now - startTime).TotalSeconds;
 
                     // send completion msg to server 
                     if (!testWithoutServer)
@@ -148,10 +154,16 @@ namespace SplitParClient
                     }
                 }
             }
+
+            double runningTime = (DateTime.Now - startClientTime).TotalSeconds;
+            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Working time: {0}", workingTime));
+            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Waiting time: {0}", runningTime - workingTime));
+            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Total running time: {0}", runningTime));
             if (corralConnection != null && corralConnection.Connected)
             {
                 corralConnection.Close();
             }
+            LogWithAddress.Close();
         }
 
         static void ConnectServer()
@@ -233,7 +245,7 @@ namespace SplitParClient
 
         }
 
-        static string MonitoringCorral()
+        static string MonitorCorral()
         {
             var sep = new char[1];
             sep[0] = ':';
@@ -258,6 +270,11 @@ namespace SplitParClient
                     if (split[0].Equals(Utils.DoingMsg))
                     {
                         LogWithAddress.WriteLine(string.Format(Utils.DoingMsg + ":" + split[1]));  
+                        if (jobList.Contains(split[1]))
+                        {
+                            // inform server to remove a task
+                            serverConnection.Send(Utils.EncodeStr(msg));
+                        }
                     }
                     else
                     {
@@ -353,7 +370,6 @@ namespace SplitParClient
 
         static void SendTask(string msg)
         {
-            LogWithAddress.WriteLine(string.Format("Send a task."));
             if (Utils.SocketConnected(corralConnection))
             {
                 // give corral a task
@@ -412,7 +428,9 @@ namespace SplitParClient
             lock (Utils.SpawnedProcesses)
             {
                 foreach (var p in Utils.SpawnedProcesses)
+                { 
                     p.Kill();
+                }
                 Utils.SpawnedProcesses.Clear();
             }
             System.Diagnostics.Process.GetCurrentProcess().Kill();
