@@ -27,6 +27,7 @@ namespace SplitParServer
         static bool useLocalMachine = false;
         static bool started = false;
         static bool saveLog = false;
+        public static TimeGraph timeGraph;
 
         public enum Outcome
         {
@@ -68,6 +69,7 @@ namespace SplitParServer
         {
             var startTime = DateTime.Now;
             numberOfClients = config.RemoteRoots.Count;
+            timeGraph = new TimeGraph(Utils.Server, config.root);
             InstallClients();
             RefreshClients();
             SpawnClients();
@@ -116,6 +118,7 @@ namespace SplitParServer
             if (saveLog)
                 WriteStatistics(config.BoogieFiles[0].value, runningTime, ClientStates.Count, result);
             LogWithAddress.Close();
+            timeGraph.ToDot();
         }
 
 
@@ -342,10 +345,42 @@ namespace SplitParServer
 
         static void WriteStatistics(string fileName, double runningTime, int clients, string result)
         {
+            Thread.Sleep(5000);
             var path = System.IO.Path.Combine(config.root, Utils.RunDir, Utils.LogResult);
             using (StreamWriter sw = File.AppendText(path))
             {
                 sw.WriteLine(string.Format("{0} {1, 50} {2, 10}s {3, 10} clients {4, 10}", DateTime.Now.ToString(), fileName, runningTime.ToString("F2"), clients, result)); 
+
+                foreach (var client in ClientStates)
+                {
+                    sw.WriteLine(string.Format("{0}", Utils.GetRemoteMachineName(client.Key)));
+                    // copy log file
+                    Installer.CopyFile(System.IO.Path.Combine(client.Key, Utils.RunDir, Utils.ClientLog), System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientLog));
+
+                    // read file
+                    StreamReader file = null;
+                    string line = "";
+                    try
+                    {
+                        file = new StreamReader(System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientLog));
+                        while ((line = file.ReadLine()) != null)
+                        {
+                            if (line.Contains("\\"))
+                                line = line.Substring(line.IndexOf("\t"));
+                            else
+                                line = "\t" + line;
+                            sw.WriteLine(line);
+                        }
+                    }
+                    finally
+                    {
+                        if (file != null)
+                            file.Close();
+                    }
+
+                    // remove log file
+                    File.Delete(System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientLog));
+                }
             }
         }
 
@@ -363,6 +398,10 @@ namespace SplitParServer
 
         static void SendFirstMsgToRemoteClient()
         {
+            timeGraph.AddEdge(Utils.Server, 
+                                Utils.GetRemoteMachineName(config.RemoteRoots[config.RemoteRoots.Count - 1].value), 
+                                "",
+                                DateTime.Now);
             lock (ClientStates)
             {
                 ClientStates[config.RemoteRoots[config.RemoteRoots.Count - 1].value] = Utils.CurrentState.BUSY;
@@ -584,6 +623,7 @@ namespace SplitParServer
 
         public static void DeliverOneTask()
         {
+            var startTime = DateTime.Now;
             Dictionary<string, Utils.CurrentState> localClientStates;
             lock (BplTasks)
             {
@@ -678,6 +718,14 @@ namespace SplitParServer
                                 // send the task to client
                                 if (Utils.SocketConnected(clients[socketMap[client.Key]]))
                                     clients[socketMap[client.Key]].Send(Utils.EncodeStr(Utils.StartWithCallTreeMsg + System.IO.Path.GetFileName(callTreeDir)));
+
+                                string fileName = System.IO.Path.GetFileName(callTreeDir);
+                                string sender = Utils.GetRemoteMachineName(topTask.author);
+                                string receiver = Utils.GetRemoteMachineName(client.Key);
+                                lock (SplitParServer.timeGraph)
+                                {                                    
+                                    SplitParServer.timeGraph.AddEdge(sender, receiver, fileName, startTime);
+                                }
                             }
 
                             // remove the task

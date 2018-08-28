@@ -51,6 +51,7 @@ namespace CommonLib
         public static string ServerLog = "ServerLog.out";
         public static string ClientLog = "ClientLog.out";
         public static string CallTreeSuffix = "split.txt";
+        public static string Server = "Server";
         public static int MsgSize = 1024;
         public static int ServerPort = 11000;
         public static int CorralPort = 12000;

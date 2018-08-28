@@ -52,9 +52,11 @@ namespace SplitParServer
             {
                 case Debug:
                     if (!noDebuggingOutput)
-                    { 
+                    {
                         lock (debugOut)
+                        {
                             debugOut.Write(msg);
+                        }
                     }
                     break;
                 case Warning:
@@ -72,7 +74,9 @@ namespace SplitParServer
                         Console.Write(msg);
                     }
                     lock (debugOut)
+                    {
                         debugOut.Write(msg);
+                    }
                     break;
             }
 

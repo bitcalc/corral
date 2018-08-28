@@ -13,7 +13,7 @@ namespace SplitParServer
     {
         public Socket connection = null;
         public string clientAddress;
-        public string currentResult = "OK";
+        public string currentResult = "OK"; 
 
         public ServerListener(Socket sk, string clientAddress)
         {
@@ -55,7 +55,7 @@ namespace SplitParServer
                         lock (SplitParServer.ClientStates)
                         {
                             SplitParServer.ClientStates[clientAddress] = Utils.CurrentState.AVAIL;
-                        }
+                        }                        
 
                         // parse client message: Complete:OK|NOK|RB
                         var split = msg.Split(sep);
@@ -66,11 +66,21 @@ namespace SplitParServer
                                 // kill all clients if they are running
                                 SplitParServer.ForceClose();
                                 currentResult = "NOK";
+                                lock (SplitParServer.timeGraph)
+                                {
+                                    SplitParServer.timeGraph.AddEdgeDone(Utils.GetRemoteMachineName(clientAddress), split[1]);
+                                }
                                 break;
                             }
                             else if (split[1].Equals("RB"))
                                 currentResult = "RB";
                         }
+
+                        lock (SplitParServer.timeGraph)
+                        {
+                            SplitParServer.timeGraph.AddEdgeDone(Utils.GetRemoteMachineName(clientAddress), split[1]);
+                        }
+
                         LogWithAddress.WriteLine(string.Format("Client {0} completed", clientAddress));
                         if (SplitParServer.areClientsBusy())
                         {

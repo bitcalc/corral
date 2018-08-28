@@ -588,6 +588,28 @@ namespace CoreLib
                 }
             }
 
+            public void ToDot(string fileName)
+            {
+                using (var fs = new System.IO.StreamWriter("tg_" + fileName + ".dot"))
+                {
+                    fs.WriteLine("digraph TG {");
+
+                    foreach (var tup in Nodes)
+                    {
+                        fs.WriteLine("{0} [label=\"{1}\"]", tup.Key, tup.Value);
+                    }
+
+                    foreach (var tup in Edges)
+                    {
+                        foreach (var tgt in tup.Value)
+                            fs.WriteLine("{0} -> {1} [label=\"{2} {3}\"]", tup.Key, tgt.Item1, tgt.Item2, tgt.Item3.ToString("F2"));
+                    }
+
+                    fs.WriteLine("}");
+
+                }
+            }
+
             void Push(int node)
             {
                 currNodeStack.Push(node);
@@ -706,7 +728,8 @@ namespace CoreLib
         public Outcome MustReachSplitParallelStyle(
             SplitState prevSplitState,
             HashSet<StratifiedCallSite> openCallSites,
-            StratifiedInliningErrorReporter reporter)
+            StratifiedInliningErrorReporter reporter,
+            List<Tuple<string, string>> addingEdges)
         {
             Outcome outcome = Outcome.Inconclusive;
             reporter.reportTraceIfNothingToExpand = true;
@@ -725,7 +748,7 @@ namespace CoreLib
             string completionMsg = "Complete";
             string doingMsg = "Doing";
             int msgSize = 1024;
-            int threshold = 5;
+            int threshold = 2;
             int treesize = di.ComputeSize();
             Socket connection = BoogieVerify.connection;
 
@@ -766,6 +789,7 @@ namespace CoreLib
             var rand = new Random();
             var decideToBlockOrReach = new Func<bool>(() =>
             {
+                return false;
                 if (prevSplitState.SplitingNodes.Count == 0)
                     return true;
                 else
@@ -786,11 +810,17 @@ namespace CoreLib
                     return false;
             });
 
+            foreach( var edge in addingEdges)
+            {
+                timeGraph.AddEdge(edge.Item1, edge.Item2);
+            }
+
             var containingVC = new Func<StratifiedCallSite, StratifiedVC>(scs => attachedVC[parent[scs]]);
             var reachedBound = false;
             var tt = TimeSpan.Zero;
             bool continueWorkingIfNoOneHelped = true;
             int fileCounter = 0;
+            var startPar = DateTime.Now;
             while (true)
             {
                 // Lets split when the tree has become big enough
@@ -956,9 +986,7 @@ namespace CoreLib
                 else
                 {
                     // dont split, do nothing
-                }
-
-                MacroSI.PRINT_DEBUG("  - overapprox");
+                } 
 
                 // Find cex
                 foreach (StratifiedCallSite cs in openCallSites)
@@ -973,11 +1001,11 @@ namespace CoreLib
                         reachedBound = true;
                     }
                 }
-                MacroSI.PRINT_DEBUG("    - check");
-                reporter.callSitesToExpand = new List<StratifiedCallSite>();
-                outcome = CheckVC(reporter);
 
-                MacroSI.PRINT_DEBUG("    - checked: " + outcome);
+                reporter.callSitesToExpand = new List<StratifiedCallSite>();
+                var startTime = DateTime.Now;
+                outcome = CheckVC(reporter);
+                BoogieVerify.z3Time += (DateTime.Now - startTime).TotalSeconds;
 
                 if (outcome != Outcome.Correct && outcome != Outcome.Errors)
                 {
@@ -1034,6 +1062,8 @@ namespace CoreLib
                             MacroSI.PRINT("{0}>>> Pop", indent(decisions.Count));
                             if (topDecision.num == 0 && !taskExists(topDecision.taskID) && topDecision.taskID > 0)
                                 MacroSI.PRINT("{0}>>> (task {1} was picked up)", indent(decisions.Count), topDecision.taskID);
+
+
                         } while (topDecision.num == 1 || !taskExists(topDecision.taskID));
 
                         if (doneBT)
@@ -1093,10 +1123,13 @@ namespace CoreLib
                     else
                         break;
                 }
-
             }
+            BoogieVerify.mustReachParTime += (DateTime.Now - startPar).TotalSeconds;
             reporter.reportTraceIfNothingToExpand = false;
-
+            if (BoogieVerify.options.prevSIState != null)
+                timeGraph.ToDot(BoogieVerify.options.prevSIState.Substring(0, BoogieVerify.options.prevSIState.IndexOf(".txt")));
+            else
+                timeGraph.ToDot();
             Console.WriteLine("Time spent taking decisions: {0} s", tt.TotalSeconds.ToString("F2"));
 
             if (outcome == Outcome.Correct && reachedBound) return Outcome.ReachedBound;
@@ -2053,14 +2086,16 @@ namespace CoreLib
         public override Outcome VerifyImplementation(Implementation impl, VerifierCallback callback)
         {
             startTime = DateTime.UtcNow;
-            if (BoogieVerify.singleConnectionOnly == false)
+            if (BoogieVerify.singleConnectionOnly == true)
             {
-                //prover.FullReset(prover.VCExprGen);
+                prover.FullReset(prover.VCExprGen);
             }
+            prover.FullReset(prover.VCExprGen);
+            stats = new Stats();
+            attachedVC.Clear();
+            attachedVCInv.Clear();           
 
-            procsHitRecBound = new HashSet<string>();
-
-            // Find all procedures that are "forced inline"
+            // Find all procedures that are "forced inline" 
             forceInlineProcs.UnionWith(program.TopLevelDeclarations.OfType<Implementation>()
                 .Where(p => BoogieUtil.checkAttrExists(ForceInlineAttr, p.Attributes) || BoogieUtil.checkAttrExists(ForceInlineAttr, p.Proc.Attributes))
                 .Select(p => p.Name));
@@ -2084,20 +2119,28 @@ namespace CoreLib
 
             di = new DI(this, BoogieVerify.options.useFwdBck || !BoogieVerify.options.useDI);
 
-            Push();
-
-            StratifiedVC svc = new StratifiedVC(implName2StratifiedInliningInfo[impl.Name], implementations);
-            mainVC = svc;
+            
+            StratifiedVC svc = null;
+            if (mainVC == null || !mainVC.info.impl.Name.Equals(impl.Name))
+            {
+                svc = new StratifiedVC(implName2StratifiedInliningInfo[impl.Name], implementations);
+                mainVC = svc;
+            }
+            else
+                svc = mainVC;
             di.RegisterMain(svc);
             HashSet<StratifiedCallSite> openCallSites = new HashSet<StratifiedCallSite>(svc.CallSites);
-            prover.Assert(svc.vcexpr, true);
+
+            if (BoogieVerify.options.prevPushOrder == null)
+            {
+                Push();
+                prover.Assert(svc.vcexpr, true);
+            }
 
             Outcome outcome;
             SplitState splitState = new SplitState();
-            var reporter = new StratifiedInliningErrorReporter(callback, this, svc);
-
-            // must reach main
-            //Tuple<StratifiedCallSite, DecisionType> splitingNode = new Tuple<StratifiedCallSite, DecisionType>(attachedVCInv[mainVC], DecisionType.MUST_REACH);
+            SplitState prevSplitState = new SplitState();
+            var reporter = new StratifiedInliningErrorReporter(callback, this, svc); 
 
             #region Eager inlining
             // Eager inlining 
@@ -2114,7 +2157,7 @@ namespace CoreLib
                 openCallSites = nextOpenCallSites;
             }
             #endregion
-
+ 
             #region Repopulate Call Tree
 
             var applyDecisionToDI = new Action<DecisionType, StratifiedVC>((d, n) =>
@@ -2131,25 +2174,69 @@ namespace CoreLib
             });
 
             // partial inlining procs 
+            bool reachedBound = false;
+            List<Tuple<string, string>> addingEdges = new List<Tuple<string, string>>();
             if (cba.Util.BoogieVerify.options.prevSIState != null)
             {
+                var startTime = DateTime.Now;
                 string prevSIStateFile = cba.Util.BoogieVerify.options.prevSIState;
                 splitState = new SplitState(prevSIStateFile);
+                int commonPrefix = 0;
+                List<Tuple<string, int>> splitingNodeOrg = new List<Tuple<string, int>>(splitState.SplitingNodes); 
+                // TODO: comparing two calltrees here, pop if necessary, and then continue push as usual  
+                //if (cba.Util.BoogieVerify.options.prevPushOrder != null)
+                //{
+                //    for (int i = 0; i < Math.Min(cba.Util.BoogieVerify.options.prevPushOrder.Count, splitState.SplitingNodes.Count); ++i)
+                //    {
+                //        if (cba.Util.BoogieVerify.options.prevPushOrder[i].Item1 == splitState.SplitingNodes[i].Item1 &&
+                //            cba.Util.BoogieVerify.options.prevPushOrder[i].Item2 == splitState.SplitingNodes[i].Item2)
+                //            commonPrefix++;
+                //        else
+                //            break;
+                //    }
+
+                //    // pop here
+                //    int popCount = cba.Util.BoogieVerify.options.prevPushOrder.Count - commonPrefix;
+                //    for (int i = 0; i < popCount; ++i)
+                //    {
+                //        MacroSI.PRINT("<<< Pop");
+                //        Pop();
+                //    }
+                //}
+
+                int currentPush = 0;
                 while (true)
                 {
                     var toAdd = new HashSet<StratifiedCallSite>();
                     var toRemove = new HashSet<StratifiedCallSite>();
+
                     foreach (StratifiedCallSite scs in openCallSites)
                     {
                         string nodePersistenID = GetPersistentID(scs);
                         // if node is not in calltree
                         if (!splitState.CallTree.Contains(nodePersistenID))
+                        { 
                             continue;
+                        }
+                        else
+                        {
+                            // Stop if we've reached the recursion bound or
+                            // the stack-depth bound (if there is one)
+                            if (HasExceededRecursionDepth(scs, CommandLineOptions.Clo.RecursionBound) ||
+                                (CommandLineOptions.Clo.StackDepthBound > 0 &&
+                                StackDepth(scs) > CommandLineOptions.Clo.StackDepthBound))
+                            {
+                                prover.Assert(scs.callSiteExpr, false);
+                                reachedBound = true;
+                                //toRemove.Add(scs);
+                                continue;
+                            }
+                        }
                         toRemove.Add(scs);
+
                         var ss = Expand(scs, null, true, true);
                         if (ss != null) toAdd.UnionWith(ss.CallSites);
-
-                        // check if it was one of the spliting nodes
+                        
                         bool found = false;
                         int splitingType = -1;
                         foreach (var node in splitState.SplitingNodes)
@@ -2160,32 +2247,96 @@ namespace CoreLib
                                 break;
                             }
 
+                        // all spliting nodes must be handled before reaching here
                         if (found)
                         {
-                            switch (splitingType)
+                                                 
+                        }
+                        LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Eagerly inlining: {0}", scs.callSite.calleeName));
+                    }
+
+                    int foundCnt = 0;
+                    foreach (var node in splitState.SplitingNodes)
+                    {
+                        bool found = false;
+                        foreach (StratifiedCallSite scs in toRemove)
+                        {
+                            string nodePersistenID = GetPersistentID(scs);
+
+                            // check if it was one of the spliting nodes
+                            if (nodePersistenID.Equals(node.Item1))
                             {
-                                case 0:
-                                    MacroSI.PRINT(">>> Pushing Must-Reach({0})", scs.callSite.calleeName);
-                                    applyDecisionToDI(DecisionType.MUST_REACH, attachedVC[scs]);
-                                    // add must-reach constraint
-                                    AssertMustReach(attachedVC[scs], new HashSet<Tuple<StratifiedVC, Block>>());
-                                    break;
-                                case 1:
-                                    MacroSI.PRINT(">>> Pushing Block({0})", scs.callSite.calleeName);
-                                    applyDecisionToDI(DecisionType.BLOCK, attachedVC[scs]);
-                                    // add must-reach constraint
-                                    prover.Assert(scs.callSiteExpr, false);
-                                    break;
-                                default:
-                                    break;
+                                found = true;
+                                foundCnt++;
+                                int splitingType = node.Item2;
+
+                                //currentPush++;
+                                //if (currentPush <= commonPrefix)
+                                //{
+                                //    switch (splitingType)
+                                //    {
+                                //        case 0:
+                                //            MacroSI.PRINT(">>> Pushing Must-Reach({0}) (repeated)", scs.callSite.calleeName);
+                                //            break;
+                                //        case 1:
+                                //            MacroSI.PRINT(">>> Pushing Block({0}) (repeated)", scs.callSite.calleeName);
+                                //            break;
+                                //        default:
+                                //            break;
+                                //    }
+                                //    break;
+                                //}
+
+                                //Push();
+                                var tgNode = string.Format("{0}__{1}", scs.callSite.calleeName, "?");
+                                switch (splitingType)
+                                {
+                                    case 0:
+                                        prover.LogComment(string.Format(">>> Pushing Must-Reach({0})", scs.callSite.calleeName));
+                                        MacroSI.PRINT(string.Format(">>> Pushing Must-Reach({0})", scs.callSite.calleeName));
+                                        addingEdges.Add(new Tuple<string, string>(tgNode, "Must Reach"));
+                                        applyDecisionToDI(DecisionType.MUST_REACH, attachedVC[scs]);
+                                        // add must-reach constraint
+                                        AssertMustReach(attachedVC[scs], new HashSet<Tuple<StratifiedVC, Block>>());
+                                        break;
+                                    case 1:
+                                        prover.LogComment(string.Format(">>> Pushing Block({0})", scs.callSite.calleeName));
+                                        MacroSI.PRINT(string.Format(">>> Pushing Block({0})", scs.callSite.calleeName));
+                                        addingEdges.Add(new Tuple<string, string>(tgNode, "Block"));
+                                        applyDecisionToDI(DecisionType.BLOCK, attachedVC[scs]);
+                                        // add must-reach constraint
+                                        prover.Assert(scs.callSiteExpr, false);
+                                        break;
+                                    default:
+                                        break;
+                                }
+
+                                break;
+                            }
+                            else
+                            {
+                                // do nothing
                             }
                         }
-                        MacroSI.PRINT_DETAIL(string.Format("Eagerly inlining: {0}", scs.callSite.calleeName), 2);
+                        if (!found)
+                            break;
                     }
+
+                    splitState.SplitingNodes.RemoveRange(0, foundCnt);
+                    if (splitState.SplitingNodes.Count == 0)
+                    {
+                        openCallSites.ExceptWith(toRemove);
+                        openCallSites.UnionWith(toAdd);
+                        break;
+                    } 
                     openCallSites.ExceptWith(toRemove);
                     openCallSites.UnionWith(toAdd);
                     if (toRemove.Count == 0) break;
                 }
+
+                // save the pushOrder
+                //cba.Util.BoogieVerify.options.prevPushOrder = new List<Tuple<string, int>>(splitingNodeOrg);
+                BoogieVerify.loadingCTTime += (DateTime.Now - startTime).TotalSeconds; 
             }
 
             else if (cba.Util.BoogieVerify.options.CallTree != null && di.disabled)
@@ -2202,7 +2353,7 @@ namespace CoreLib
                         toRemove.Add(scs);
                         var ss = Expand(scs);
                         if (ss != null) toAdd.UnionWith(ss.CallSites);
-                        MacroSI.PRINT_DETAIL(string.Format("Eagerly inlining: {0}", scs.callSite.calleeName), 2);
+                        LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Eagerly inlining: {0}", scs.callSite.calleeName));
                     }
                     openCallSites.ExceptWith(toRemove);
                     openCallSites.UnionWith(toAdd);
@@ -2281,7 +2432,10 @@ namespace CoreLib
             {
                 var startTimer = DateTime.Now;
                 Debug.Assert(CommandLineOptions.Clo.UseLabels == false);
-                outcome = MustReachSplitParallelStyle(splitState, openCallSites, reporter);
+                outcome = MustReachSplitParallelStyle(splitState, openCallSites, reporter, addingEdges);
+
+                if (outcome == Outcome.Correct && reachedBound)
+                    outcome = Outcome.ReachedBound;
                 var endTimer = DateTime.Now;
                 TimeSpan diff = endTimer - startTimer;
 
@@ -2318,7 +2472,8 @@ namespace CoreLib
                 }
             }
 
-            Pop();
+            if (BoogieVerify.singleConnectionOnly == true)
+                Pop();
 
             if (BoogieVerify.options.extraFlags.Contains("DiCheckSanity"))
                 di.CheckSanity();
@@ -2369,7 +2524,7 @@ namespace CoreLib
             if (candidate == null)
             {
                 stats.numInlined++;
-                var svc = new StratifiedVC(implName2StratifiedInliningInfo[scs.callSite.calleeName], implementations);
+                StratifiedVC svc = new StratifiedVC(implName2StratifiedInliningInfo[scs.callSite.calleeName], implementations);
 
                 foreach (var newCallSite in svc.CallSites)
                 {
@@ -2892,7 +3047,8 @@ namespace CoreLib
         {
             var ret = new HashSet<StratifiedVC>();
             var disj = currentDag.AllDisjointNodes();
-            disj[vcNodeMap[vc]].Iter(n => ret.Add(vcNodeMap[n]));
+            if (disj.ContainsKey(vcNodeMap[vc]))
+                disj[vcNodeMap[vc]].Iter(n => ret.Add(vcNodeMap[n]));
             return ret;
         }
 

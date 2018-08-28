@@ -55,7 +55,9 @@ namespace SplitParClient
                     if (!noDebuggingOutput)
                     {
                         lock (debugOut)
+                        {
                             debugOut.Write(msg);
+                        }
                     }
                     break;
                 case Warning:
@@ -73,7 +75,9 @@ namespace SplitParClient
                         Console.Write(msg);
                     }
                     lock (debugOut)
+                    {
                         debugOut.Write(msg);
+                    }
                     break;
             }
 

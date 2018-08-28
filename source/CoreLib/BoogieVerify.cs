@@ -38,12 +38,16 @@ namespace cba.Util
         public static HashSet<string> procsHitRecBound = new HashSet<string>();
         public static bool PrintImplsBeingVerified = false;
         public static bool singleConnectionOnly = false;
+        public static double loadingCTTime = 0;
+        public static double z3Time = 0;
+        public static double mustReachParTime = 0;
 
         // TODO: move this elsewhere
         public static HashSet<string> ignoreAssertMethods;
 
-        // Socket for SplitPar module
+        // SplitPar module
         public static Socket connection;
+        public static VC.VCGen vcgen = null;
 
         public static void setTimeOut(int TO)
         {
@@ -97,13 +101,15 @@ namespace cba.Util
             var duper = new FixedDuplicator(true);
             var origProg = new Dictionary<string, Implementation>();
 
-            if (needErrorTraces)
+            if (needErrorTraces || 
+                (BoogieVerify.singleConnectionOnly == false && BoogieVerify.options.connectionPort != null))
             {
                 foreach (var decl in program.TopLevelDeclarations)
                 {
                     if (decl is Implementation)
                     {
                         var origImpl = duper.VisitImplementation(decl as Implementation);
+                        origImpl.Proc = (decl as Implementation).Proc;
                         origProg.Add(origImpl.Name, origImpl);
                     }
                 }
@@ -162,10 +168,8 @@ namespace cba.Util
             var mains = new List<Implementation>(
                 program.TopLevelDeclarations
                 .OfType<Implementation>()
-                .Where(impl => QKeyValue.FindBoolAttribute(impl.Attributes, "entrypoint")));
+                .Where(impl => QKeyValue.FindBoolAttribute(impl.Attributes, "entrypoint"))); 
 
-
-            VC.VCGen vcgen = null;
             try
             {
                 Debug.Assert(CommandLineOptions.Clo.vcVariety != CommandLineOptions.VCVariety.Doomed);
@@ -173,7 +177,8 @@ namespace cba.Util
                 if (options.newStratifiedInlining) {
                   if(options.newStratifiedInliningAlgo.ToLower() == "duality")
                         Microsoft.Boogie.SMTLib.Factory.UseInterpolation = true;
-                  vcgen = new CoreLib.StratifiedInlining(program, CommandLineOptions.Clo.SimplifyLogFilePath, CommandLineOptions.Clo.SimplifyLogFileAppend, null);
+                  if (vcgen == null || BoogieVerify.singleConnectionOnly || BoogieVerify.options.connectionPort == null)
+                    vcgen = new CoreLib.StratifiedInlining(program, CommandLineOptions.Clo.SimplifyLogFilePath, CommandLineOptions.Clo.SimplifyLogFileAppend, null);
                 }
                 else
                    // vcgen = new VC.StratifiedVCGen(options.CallTree != null, options.CallTree, options.procsToSkip, options.extraRecBound, program, CommandLineOptions.Clo.SimplifyLogFilePath, CommandLineOptions.Clo.SimplifyLogFileAppend, new List<Checker>());
@@ -213,8 +218,7 @@ namespace cba.Util
                 {
                     var start = DateTime.Now;
 
-                    outcome = vcgen.VerifyImplementation(impl, out errors);
-
+                    outcome = vcgen.VerifyImplementation(impl, out errors); 
                     var end = DateTime.Now;
 
                     TimeSpan elapsed = end - start;
@@ -337,7 +341,17 @@ namespace cba.Util
             else
                 CallTreeSize = 0;
 
-            vcgen.Close();
+            // restore program
+            if (BoogieVerify.singleConnectionOnly == false && 
+                BoogieVerify.options.connectionPort != null)
+            {
+                program.RemoveTopLevelDeclarations(decl => (decl is Implementation)); 
+
+                foreach (var decl in origProg)
+                    program.AddTopLevelDeclaration(decl.Value); 
+            }
+            else 
+                vcgen.Close();
             CommandLineOptions.Clo.TheProverFactory.Close();
 
             return ret;
@@ -820,6 +834,7 @@ namespace cba.Util
 
         public HashSet<string> CallTree;
         public string prevSIState; // path to prev SI state
+        public List<Tuple<string, int>> prevPushOrder; 
         public string connectionPort; // socket port to connect clientController
 
         public bool StratifiedInliningWithoutModels;
@@ -849,6 +864,7 @@ namespace cba.Util
             NonUniformUnfolding = false;
             CallTree = null;
             prevSIState = null;
+            prevPushOrder = null;
             connectionPort = null;
             StratifiedInliningWithoutModels = false;
             UseProverEvaluate = true;
@@ -871,6 +887,7 @@ namespace cba.Util
             ret.NonUniformUnfolding = NonUniformUnfolding;
             ret.CallTree = CallTree;
             ret.prevSIState = prevSIState;
+            ret.prevPushOrder = prevPushOrder;
             ret.connectionPort = connectionPort;
             if (CallTree != null)
             {

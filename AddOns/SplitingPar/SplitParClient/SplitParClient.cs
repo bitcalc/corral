@@ -70,7 +70,7 @@ namespace SplitParClient
             ConnectCorral();
             var startClientTime = DateTime.Now;
 
-            string msg = Utils.StartMsg;
+            string msg = Utils.StartWithCallTreeMsg + "2split.txt";
             int cnt = 0;
             while (msg != Utils.DoneMsg)
             {
@@ -88,9 +88,15 @@ namespace SplitParClient
                 {
                     // receive a shutdown signal                       
                     // tell server that he doesnt need to wait
+                    LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Total tasks: {0}", cnt - 1));
                     if (!testWithoutServer) 
                         serverConnection.Send(Utils.EncodeStr(Utils.DoneMsg));
                     corralConnection.Send(Utils.EncodeStr(Utils.DoneMsg));
+
+                    byte[] data = new byte[Utils.MsgSize];
+                    int receivedDataLength = corralConnection.Receive(data);
+                    string stats = Encoding.ASCII.GetString(data, 0, receivedDataLength);
+                    LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("{0}", stats));
                 }
                 else if (msg.Contains(Utils.StartMsg))
                 {
@@ -125,21 +131,18 @@ namespace SplitParClient
                         // testing purpose
                         switch (cnt)
                         {
-                            case 1:
-                                msg = Utils.StartMsg;
-                                break;
-                            case 2:
-                                msg = Utils.StartWithCallTreeMsg + "1split.txt";
-                                break;
                             case 3:
-                                msg = Utils.StartWithCallTreeMsg + "2split.txt";
-                                break;
-                            case 4:
                                 msg = Utils.StartWithCallTreeMsg + "6split.txt";
                                 break;
-                            case 5:
-                                msg = Utils.StartWithCallTreeMsg + "7split.txt";
+                            case 1:
+                                msg = Utils.StartWithCallTreeMsg + "5split.txt";
                                 break;
+                            case 2:
+                                msg = Utils.StartWithCallTreeMsg + "3split.txt";
+                                break;
+                            case 4:
+                                msg = Utils.StartWithCallTreeMsg + "9split.txt";
+                                break; 
                             case 6:
                                 msg = Utils.StartWithCallTreeMsg + "90split.txt";
                                 break;
@@ -156,9 +159,9 @@ namespace SplitParClient
             }
 
             double runningTime = (DateTime.Now - startClientTime).TotalSeconds;
-            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Working time: {0}", workingTime));
-            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Waiting time: {0}", runningTime - workingTime));
-            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Total running time: {0}", runningTime));
+            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Working time: {0}", workingTime.ToString("F2")));
+            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Waiting time: {0}", (runningTime - workingTime).ToString("F2")));
+            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Total running time: {0}", runningTime.ToString("F2")));
             if (corralConnection != null && corralConnection.Connected)
             {
                 corralConnection.Close();
@@ -259,8 +262,7 @@ namespace SplitParClient
                 msg = Encoding.ASCII.GetString(data, 0, receivedDataLength); 
                 if (msg.Contains(Utils.CompletionMsg))
                 {
-                    // we dont close because it will be used for future msg
-                    // corralConnection.Close();
+                    // we dont close because it will be used for future msg 
                     break;
                 }
                 var split = msg.Split(sep);
@@ -273,7 +275,8 @@ namespace SplitParClient
                         if (jobList.Contains(split[1]))
                         {
                             // inform server to remove a task
-                            serverConnection.Send(Utils.EncodeStr(msg));
+                            if (!testWithoutServer)
+                                serverConnection.Send(Utils.EncodeStr(msg));
                         }
                     }
                     else

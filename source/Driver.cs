@@ -726,14 +726,21 @@ namespace cba
 
                         Console.WriteLine(string.Format("Number of procedures inlined: {0}", BoogieVerify.CallTreeSize));
                         Console.WriteLine(string.Format("Total Time: {0} s", BoogieVerify.verificationTime.TotalSeconds.ToString("F2")));
-                        init = BoogieUtil.ReadAndOnlyResolve(config.inputFile);
-                        init.Typecheck();
+                        //init = BoogieUtil.ReadAndOnlyResolve(config.inputFile);
+                        //init.Typecheck();
                         
                         running = false;
                     }
+                    if (BoogieVerify.vcgen != null)
+                        BoogieVerify.vcgen.Close();
 
-                    if (server != null && server.Connected)
-                        server.Close();
+                    // send stats
+                    string stats = string.Format("Must Reach Parallel time: {0}", BoogieVerify.mustReachParTime.ToString("F2")) + Environment.NewLine +
+                        string.Format("\tZ3 time: {0}", BoogieVerify.z3Time.ToString("F2")) + Environment.NewLine +
+                        string.Format("Loading calltrees: {0}", BoogieVerify.loadingCTTime.ToString("F2"));
+                    LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("{0}", stats));
+                    server.Send(EncodeStr(stats));
+
                     LogWithAddress.Close();
                     Log.Close();
                     throw new NormalExit("Done");
