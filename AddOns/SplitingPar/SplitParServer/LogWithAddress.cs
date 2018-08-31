@@ -67,6 +67,15 @@ namespace SplitParServer
                     break;
                 case Normal:
                     Console.Write(msg);
+
+                    if (!noDebuggingOutput)
+                    {
+                        lock (debugOut)
+                        {
+                            debugOut.Write(msg);
+                        }
+                    }
+
                     break;
                 case Verbose:
                     if (verbose_level > 0)

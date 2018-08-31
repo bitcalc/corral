@@ -58,8 +58,8 @@ namespace CommonLib
 
         public void ToDot()
         {
-            string path = System.IO.Path.Combine(root, Utils.RunDir, "tg" + (dmpCnt++) + ".dot");
-            using (var fs = new System.IO.StreamWriter(path))
+            string path = System.IO.Path.Combine(root, Utils.RunDir, "server" + (dmpCnt++) + ".dot");
+            using (var fs = new System.IO.StreamWriter(path, false))
             {
                 fs.WriteLine("digraph TG {");
 
@@ -81,7 +81,7 @@ namespace CommonLib
 
         public void ToDot(string fileName)
         {
-            using (var fs = new System.IO.StreamWriter("tg_" + fileName + ".dot"))
+            using (var fs = new System.IO.StreamWriter("server_" + fileName + ".dot", false))
             {
                 fs.WriteLine("digraph TG {");
 

@@ -16,11 +16,11 @@ namespace SplitParServer
     public class SplitParServer
     {
         public static Dictionary<string, Utils.CurrentState> ClientStates = new Dictionary<string, Utils.CurrentState>();
-        public static List<BplTask> BplTasks = new List<BplTask>(); 
+        public static List<BplTask> BplTasks = new List<BplTask>();
         static Dictionary<string, int> socketMap = new Dictionary<string, int>();
         static SplitParConfig config;
-        static List<Socket> clients = new List<Socket>(); 
-        
+        static List<Socket> clients = new List<Socket>();
+
         static int numberOfClients = 1;
         static bool testWithoutServer = false;
         static bool testWithoutCorral = false;
@@ -28,6 +28,8 @@ namespace SplitParServer
         static bool started = false;
         static bool saveLog = false;
         public static TimeGraph timeGraph;
+
+        public static double totalQueryTime = 0;
 
         public enum Outcome
         {
@@ -62,7 +64,7 @@ namespace SplitParServer
             LogWithAddress.init(System.IO.Path.Combine(config.root, Utils.RunDir));
             ServerController();
             LogWithAddress.Close();
-            Console.ReadKey();
+            //Console.ReadKey();
         }
 
         static void ServerController()
@@ -102,7 +104,7 @@ namespace SplitParServer
                     else
                     {
                         SendFirstMsgToRemoteClient();
-                    }                    
+                    }
                 }
             }
             else
@@ -117,6 +119,7 @@ namespace SplitParServer
 
             if (saveLog)
                 WriteStatistics(config.BoogieFiles[0].value, runningTime, ClientStates.Count, result);
+            LogWithAddress.WriteLine(string.Format("Total query files time: {0}", totalQueryTime.ToString("F2")));
             LogWithAddress.Close();
             timeGraph.ToDot();
         }
@@ -134,7 +137,7 @@ namespace SplitParServer
             {
                 LogWithAddress.WriteLine(string.Format("{0}", e.Message));
                 return;
-            } 
+            }
 
             // local machine
             if (useLocalMachine)
@@ -143,7 +146,7 @@ namespace SplitParServer
             // Do remote installation
             LogWithAddress.WriteLine(string.Format("Doing remote installation"));
             for (int i = 0; i < config.RemoteRoots.Count; ++i)
-            {                
+            {
                 ClientStates[config.RemoteRoots[i].value] = Utils.CurrentState.AVAIL;
                 LogWithAddress.WriteLine(string.Format("Installing {0}", config.RemoteRoots[i].value));
                 Installer.RemoteInstall(config.root, config.RemoteRoots[i].value, config.Utils.Select(u => u.dir).Distinct(), force, config.BoogieFiles);
@@ -164,7 +167,7 @@ namespace SplitParServer
             var starttime = DateTime.Now;
             Console.WriteLine("Spawning clients");
 
-            
+
             var configDir = System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientConfig);
             if (useLocalMachine)
             {
@@ -271,7 +274,7 @@ namespace SplitParServer
                 LogWithAddress.WriteLine(string.Format("Error"));
             }
         }
-        
+
         static string MonitorClients()
         {
             var threads = new List<Thread>();
@@ -340,46 +343,61 @@ namespace SplitParServer
                     bugAddress = worker.clientAddress;
                 }
             }
-            return result;            
+            return result;
         }
 
         static void WriteStatistics(string fileName, double runningTime, int clients, string result)
         {
             Thread.Sleep(5000);
-            var path = System.IO.Path.Combine(config.root, Utils.RunDir, Utils.LogResult);
+            var path = System.IO.Path.Combine(config.root, Utils.RunDir, Utils.TableResult);
             using (StreamWriter sw = File.AppendText(path))
             {
-                sw.WriteLine(string.Format("{0} {1, 50} {2, 10}s {3, 10} clients {4, 10}", DateTime.Now.ToString(), fileName, runningTime.ToString("F2"), clients, result)); 
-
+                List<ClientStats> allStats = new List<ClientStats>();
                 foreach (var client in ClientStates)
                 {
-                    sw.WriteLine(string.Format("{0}", Utils.GetRemoteMachineName(client.Key)));
                     // copy log file
-                    Installer.CopyFile(System.IO.Path.Combine(client.Key, Utils.RunDir, Utils.ClientLog), System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientLog));
-
-                    // read file
-                    StreamReader file = null;
-                    string line = "";
                     try
                     {
-                        file = new StreamReader(System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientLog));
-                        while ((line = file.ReadLine()) != null)
-                        {
-                            if (line.Contains("\\"))
-                                line = line.Substring(line.IndexOf("\t"));
-                            else
-                                line = "\t" + line;
-                            sw.WriteLine(line);
-                        }
-                    }
-                    finally
-                    {
-                        if (file != null)
-                            file.Close();
-                    }
+                        Installer.CopyFile(System.IO.Path.Combine(client.Key, Utils.RunDir, Utils.ClientStats), System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientStats));
 
-                    // remove log file
-                    File.Delete(System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientLog));
+                        // read file
+                        ClientStats stats = ClientStats.DeSerialize(System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientStats));
+                        stats.Name = Utils.GetRemoteMachineName(client.Key);
+                        allStats.Add(stats);
+
+                        // remove log file
+                        File.Delete(System.IO.Path.Combine(config.root, Utils.RunDir, Utils.ClientStats));
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+
+                double z3Time = 0, waitingTime = 0, inliningTime = 0, decisionTime = 0;
+                foreach (var stats in allStats)
+                {
+                    z3Time += stats.MustReachParallelTime.Z3Time;
+                    decisionTime += stats.MustReachParallelTime.SIDecisionsTime;
+                    waitingTime += stats.TotalTime.WaitingTime;
+                    inliningTime += stats.InliningCallTreesTime;
+                }
+                sw.WriteLine(string.Format("{0}, {1, 50}, {2, 10}, {3, 15}, {4, 10}, {5, 10}, {6, 10}, {7, 10}, {8, 10}",
+                            DateTime.Now.ToString(), fileName, runningTime.ToString("F2") + "s", clients + " clients", result,
+                            z3Time.ToString("F2"),
+                            waitingTime.ToString("F2"),
+                            decisionTime.ToString("F2"),
+                            inliningTime.ToString("F2")
+                            ));
+                foreach (var stats in allStats)
+                {
+                    sw.WriteLine(string.Format("{0}, {1, 50}, {2, 10}, {3, 15}, {4, 10}, {5, 10}, {6, 10}, {7, 10}, {8, 10}, {9, 10}, {10}",
+                            "", "", "", "", "",
+                            stats.MustReachParallelTime.Z3Time.ToString("F2"),
+                            stats.TotalTime.WaitingTime.ToString("F2"),
+                            stats.MustReachParallelTime.SIDecisionsTime.ToString("F2"),
+                            stats.InliningCallTreesTime.ToString("F2"),
+                            stats.TotalTasks,
+                            stats.Name));
                 }
             }
         }
@@ -398,8 +416,8 @@ namespace SplitParServer
 
         static void SendFirstMsgToRemoteClient()
         {
-            timeGraph.AddEdge(Utils.Server, 
-                                Utils.GetRemoteMachineName(config.RemoteRoots[config.RemoteRoots.Count - 1].value), 
+            timeGraph.AddEdge(Utils.Server,
+                                Utils.GetRemoteMachineName(config.RemoteRoots[config.RemoteRoots.Count - 1].value),
                                 "",
                                 DateTime.Now);
             lock (ClientStates)
@@ -407,7 +425,7 @@ namespace SplitParServer
                 ClientStates[config.RemoteRoots[config.RemoteRoots.Count - 1].value] = Utils.CurrentState.BUSY;
             }
 
-            clients[clients.Count - 1].Send(Utils.EncodeStr(Utils.StartMsg)); 
+            clients[clients.Count - 1].Send(Utils.EncodeStr(Utils.StartMsg));
         }
 
         static void TransferFiles(string folderDir, string folder, string remoteFolder)
@@ -419,7 +437,7 @@ namespace SplitParServer
                 var remotefile = System.IO.Path.Combine(remoteFolder, folder, System.IO.Path.GetFileName(file));
                 if (!System.IO.File.Exists(remotefile))
                 {
-                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(remoteFolder, folder)); 
+                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(remoteFolder, folder));
                     System.IO.File.Copy(file, remotefile, true);
                     File.SetAttributes(remotefile, FileAttributes.Normal);
                 }
@@ -427,9 +445,9 @@ namespace SplitParServer
         }
 
         static bool PingClient(int clientID)
-        { 
+        {
             clients.ElementAt(clientID).Send(Utils.EncodeStr(Utils.PingMsg));
-        
+
             // wait for the reply message
             byte[] data = new byte[1024];
             int receivedDataLength = clients.ElementAt(clientID).Receive(data); //Wait for the data
@@ -455,10 +473,10 @@ namespace SplitParServer
                 return Outcome.TimedOut;
             else if (stringData.Contains(Utils.OutOfMemoryMsg))
                 return Outcome.OutOfMemory;
-            else 
+            else
                 return Outcome.OutOfResource;
-        } 
-         
+        }
+
         public static void TaskDelivery()
         {
             while (true)
@@ -467,22 +485,22 @@ namespace SplitParServer
                 lock (BplTasks)
                 {
                     taskCount = BplTasks.Count;
-                } 
+                }
                 if (taskCount > 0)
                 {
                     Dictionary<string, Utils.CurrentState> localClientStates;
                     lock (ClientStates)
-                    {                        
+                    {
                         localClientStates = new Dictionary<string, Utils.CurrentState>(ClientStates);
                     }
-                    foreach(var client in localClientStates)
-                        if (client.Value == Utils.CurrentState.AVAIL && 
+                    foreach (var client in localClientStates)
+                        if (client.Value == Utils.CurrentState.AVAIL &&
                             !BplTasks[0].author.Equals(client.Key))
                         {
                             lock (BplTasks)
-                            {                                
+                            {
                                 BplTask topTask = BplTasks[0];
-                                string callTreeDir = System.IO.Path.Combine(topTask.author, Utils.RunDir, topTask.callTreeDir);                                
+                                string callTreeDir = System.IO.Path.Combine(topTask.author, Utils.RunDir, System.IO.Path.GetFileName(topTask.callTreeDir));
                                 // let him do the first task
                                 if (System.IO.File.Exists(callTreeDir))
                                 {
@@ -537,21 +555,11 @@ namespace SplitParServer
                     if (!ClientStates.Any(client => client.Value == Utils.CurrentState.BUSY))
                         break;
                 }
-            } 
+            }
             foreach (var c in clients)
             {
                 c.Send(Utils.EncodeStr(Utils.DoneMsg));
             }
-        }
-
-        public static bool areClientsBusy()
-        {
-            lock (ClientStates)
-            {
-                if (ClientStates.Any(client => client.Value == Utils.CurrentState.BUSY))
-                    return true;
-            }
-            return false;
         }
 
         public static bool areClientsAvail()
@@ -561,11 +569,34 @@ namespace SplitParServer
                 if (ClientStates.Any(client => client.Value == Utils.CurrentState.AVAIL))
                     return true;
             }
+
+            return false;
+        }
+
+        public static bool areClientsWorking()
+        {
+            lock (ClientStates)
+            {
+                if (ClientStates.Any(client => client.Value == Utils.CurrentState.BUSY))
+                    return true;
+            }
+
+            return false;
+        }
+
+        public static bool areTasksAvail()
+        {
+            lock (BplTasks)
+            {
+                if (BplTasks.Count > 0)
+                    return true;
+            }
+
             return false;
         }
 
         public static void SendDoneMsg()
-        { 
+        {
             foreach (var c in clients)
             {
                 if (Utils.SocketConnected(c))
@@ -588,7 +619,7 @@ namespace SplitParServer
 
             using (var searcher = new ManagementObjectSearcher(scope, query))
             {
-                foreach (ManagementObject process in searcher.Get()) 
+                foreach (ManagementObject process in searcher.Get())
                 {
                     try
                     {
@@ -599,7 +630,7 @@ namespace SplitParServer
                         LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot terminate {0} at {1}", remoteMachine, processName);
                     }
                 }
-            } 
+            }
         }
 
         public static void ForceClose()
@@ -623,125 +654,102 @@ namespace SplitParServer
 
         public static void DeliverOneTask()
         {
-            var startTime = DateTime.Now;
-            Dictionary<string, Utils.CurrentState> localClientStates;
-            lock (BplTasks)
+            LogWithAddress.WriteLine(string.Format("Task size: {0}", BplTasks.Count));
+            lock (ClientStates)
             {
-                lock (ClientStates)
+                foreach (var client in ClientStates.ToList())
                 {
-                    localClientStates = new Dictionary<string, Utils.CurrentState>(ClientStates);
-                }
-
-                // clean the task list
-                foreach (var client in localClientStates)
                     if (client.Value == Utils.CurrentState.AVAIL)
                     {
-                        int removed = BplTasks.RemoveAll(task => task.author.Equals(client.Key));
-                        //LogWithAddress.WriteLine(string.Format("Remove {0} from BplTask", removed));
-                    }
-
-                foreach (var client in localClientStates)
-                    if (client.Value == Utils.CurrentState.AVAIL &&
-                        BplTasks.Count > 0)
-                    {
-                        if (!BplTasks[0].author.Equals(client.Key))
+                        var startTime = DateTime.Now;
+                        string callTreeName = "";
+                        BplTask topTask = null;
+                        while (true)
                         {
-                            BplTask topTask = BplTasks[0];
-                            string callTreeDir = System.IO.Path.Combine(topTask.author, Utils.RunDir, topTask.callTreeDir);
+                            lock (BplTasks)
+                            {
+                                if (BplTasks.Count > 0)
+                                {
+                                    topTask = BplTasks[0];
+                                    BplTasks.RemoveAt(0);
+                                }
+                                else
+                                    break;
+                            }
+
+                            callTreeName = Path.GetFileName(topTask.callTreeDir);
+                            string callTreeDir = System.IO.Path.Combine(topTask.author, Utils.RunDir, callTreeName);
                             // let him do the first task
                             if (System.IO.File.Exists(callTreeDir))
                             {
-                                LogWithAddress.WriteLine(string.Format("Transfer {0} to {1}", topTask.ToString(), client.Key));
-
                                 // pick the task from a client
                                 // if localClient is the one
-
                                 if (client.Key.Equals(config.root))
                                 {
-                                    string dir = System.IO.Path.Combine(config.root, Utils.RunDir, System.IO.Path.GetFileName(callTreeDir));
-                                    if (System.IO.File.Exists(dir))
-                                    {
-                                        try
-                                        {
-                                            System.IO.File.Delete(dir);
-                                        }
-                                        catch (Exception)
-                                        {
-                                            LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot remove file {0}", dir);
-                                        }
-                                    }
+                                    // all calltree files have different names
+                                    string dir = System.IO.Path.Combine(config.root, Utils.RunDir, callTreeName);
                                     try
                                     {
                                         System.IO.File.Move(callTreeDir, dir);
+                                        LogWithAddress.WriteLine(string.Format("Transfer {0} to {1}", topTask.ToString(), client.Key));
+                                        break;
                                     }
                                     catch (Exception)
                                     {
-                                        LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot move file {0} to {1}", callTreeDir, dir);
-                                        continue;
+                                        LogWithAddress.WriteLine(string.Format("Cannot move file {0} to {1}", callTreeDir, dir));
+                                        callTreeName = "";
                                     }
                                 }
                                 else
                                 {
+                                    var queryFileStart = DateTime.Now;
                                     if (System.IO.File.Exists(callTreeDir))
                                     {
-                                        string dir = System.IO.Path.Combine(client.Key, Utils.RunDir, System.IO.Path.GetFileName(callTreeDir));
-                                        // find remote client
-                                        if (System.IO.File.Exists(dir))
-                                        {
-                                            try
-                                            {
-                                                System.IO.File.Delete(dir);
-                                            }
-                                            catch (Exception)
-                                            {
-                                                LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot remove file {0}", dir);
-                                            }
-                                        }
+                                        // all calltree files have different names
+                                        string dir = System.IO.Path.Combine(client.Key, Utils.RunDir, callTreeName);
                                         try
                                         {
                                             System.IO.File.Move(callTreeDir, dir);
+                                            LogWithAddress.WriteLine(string.Format("Transfer {0} to {1}", topTask.ToString(), client.Key));
+                                            break;
                                         }
                                         catch (Exception)
                                         {
-                                            LogWithAddress.WriteLine(LogWithAddress.Debug, "Cannot move file {0} to {1}", callTreeDir, dir);
-                                            continue;
+                                            LogWithAddress.WriteLine(string.Format("Cannot move file {0} t0 {1}", topTask.ToString(), dir));
+                                            callTreeName = "";
                                         }
                                     }
-                                }
-
-                                // mark him busy
-                                lock (ClientStates)
-                                {
-                                    ClientStates[client.Key] = Utils.CurrentState.BUSY;
-                                }
-
-                                // send the task to client
-                                if (Utils.SocketConnected(clients[socketMap[client.Key]]))
-                                    clients[socketMap[client.Key]].Send(Utils.EncodeStr(Utils.StartWithCallTreeMsg + System.IO.Path.GetFileName(callTreeDir)));
-
-                                string fileName = System.IO.Path.GetFileName(callTreeDir);
-                                string sender = Utils.GetRemoteMachineName(topTask.author);
-                                string receiver = Utils.GetRemoteMachineName(client.Key);
-                                lock (SplitParServer.timeGraph)
-                                {                                    
-                                    SplitParServer.timeGraph.AddEdge(sender, receiver, fileName, startTime);
+                                    totalQueryTime += (DateTime.Now - queryFileStart).TotalSeconds;
                                 }
                             }
-
-                            // remove the task
-                            //LogWithAddress.WriteLine(string.Format("Remove {0}", BplTasks[0].ToString()));
-                            BplTasks.RemoveAt(0);
-
-
-                            if (BplTasks.Count == 0)
-                                break;
                         }
-                        else
+
+                        if (callTreeName.Length > 0 && System.IO.File.Exists(System.IO.Path.Combine(client.Key, Utils.RunDir, callTreeName)))
                         {
-                            Debug.Assert(false);
+                            // mark him busy 
+                            ClientStates[client.Key] = Utils.CurrentState.BUSY;
+
+                            // send the task to client
+                            if (Utils.SocketConnected(clients[socketMap[client.Key]]))
+                            {
+                                clients[socketMap[client.Key]].Send(Utils.EncodeStr(Utils.StartWithCallTreeMsg + callTreeName));
+                                LogWithAddress.WriteLine(string.Format("Request sent to {0}: {1}", client.Key, callTreeName));
+                            }
+
+                            string sender = Utils.GetRemoteMachineName(topTask.author);
+                            string receiver = Utils.GetRemoteMachineName(client.Key);
+                            lock (SplitParServer.timeGraph)
+                            {
+                                SplitParServer.timeGraph.AddEdge(sender, receiver, callTreeName, startTime);
+                            }
                         }
+
+                        if (BplTasks.Count == 0)
+                            break;
                     }
+                }
             }
+
         }
 
         static void Console_CancelKeyPress(object sender, ConsoleCancelEventArgs e)
@@ -751,7 +759,7 @@ namespace SplitParServer
             lock (Utils.SpawnedProcesses)
             {
                 ForceClose();
-                Utils.SpawnedProcesses.Clear();
+                Utils.SpawnedProcesses.Clear(); 
             }
             System.Diagnostics.Process.GetCurrentProcess().Kill();
         }

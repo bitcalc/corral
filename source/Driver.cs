@@ -599,6 +599,7 @@ namespace cba
                     string dirSuffix = ".txt";
                     string workingMsg = "Verifying:";
                     string completionMsg = "Complete";
+                    string errorMsg = "Error:";
                     // set up connection, corral does not die after each client call
                     // instead, it stays until it receives DONE message
                     // this stratergy will save some setup time (2 sec/connection)
@@ -650,21 +651,19 @@ namespace cba
 
                     BoogieVerify.connection = server; 
                     if (config.staticInlining > 0) BoogieVerify.options.StratifiedInlining = 100;
-                    if (config.useDuality) BoogieVerify.options.newStratifiedInlining = false;
-                    bool running = false;
+                    if (config.useDuality) BoogieVerify.options.newStratifiedInlining = false; 
                     while (!msg.Equals(doneMsg))
                     {
                         //Wait for the data from server
                         byte[] data = new byte[msgSize];
                         int receivedDataLength = server.Receive(data);
                         msg = Encoding.ASCII.GetString(data, 0, receivedDataLength);
-
+                        LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("{0}", msg));
                         // contact the server for another task
                         if (msg.Equals(doneMsg))
                             break;
-                        else if (running == false)
-                        {
-                            running = true;
+                        else 
+                        { 
                             // extract prevSIState from msg: start:1split.txt
                             var split = msg.Split(sep);
                             if (msg.Equals(startMsg))
@@ -685,6 +684,7 @@ namespace cba
                                 }
                                 else
                                 {
+                                    server.Send(EncodeStr(errorMsg + prevSIState));
                                     Debug.Assert(false);
                                 }
                             }
@@ -692,9 +692,7 @@ namespace cba
                             {
                                 continue;
                             }
-                        }
-                        else
-                            continue;
+                        } 
                         server.Send(EncodeStr(workingMsg + prevSIState));
                         BoogieVerify.options.prevSIState = prevSIState; 
 
@@ -702,47 +700,42 @@ namespace cba
                         switch (rstatus)
                         {
                             case BoogieVerify.ReturnStatus.NOK:
-                                server.Send(EncodeStr(completionMsg + ":NOK"));
+                                server.Send(EncodeStr(completionMsg + ":NOK;"));
                                 break;
                             case BoogieVerify.ReturnStatus.OK:
-                                server.Send(EncodeStr(completionMsg + ":OK"));
+                                server.Send(EncodeStr(completionMsg + ":OK;"));
                                 break;
                             default:
-                                server.Send(EncodeStr(completionMsg + ":RB"));
+                                server.Send(EncodeStr(completionMsg + ":RB;"));
                                 break;
                         }
-                        Console.WriteLine("Return status: {0}", rstatus);
+                        LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Return status: {0}", rstatus));
                         if (err == null || err.Count == 0)
-                            Console.WriteLine("No bugs found");
+                            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("No bugs found"));
                         else
                         {
-                            Console.WriteLine("Program has bugs");
+                            LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Program has bugs"));
                             foreach (var trace in err.OfType<BoogieAssertErrorTrace>())
                             {
-                                Console.WriteLine("{0} did not verify", trace.impl.Name);
+                                LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("{0} did not verify", trace.impl.Name));
                                 if (!config.noTrace) trace.cex.Print(0, Console.Out);
                             }
                         }
 
-                        Console.WriteLine(string.Format("Number of procedures inlined: {0}", BoogieVerify.CallTreeSize));
-                        Console.WriteLine(string.Format("Total Time: {0} s", BoogieVerify.verificationTime.TotalSeconds.ToString("F2")));
+                        LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Number of procedures inlined: {0}", BoogieVerify.CallTreeSize));
+                        LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("Total Time: {0} s", BoogieVerify.verificationTime.TotalSeconds.ToString("F2")));
                         //init = BoogieUtil.ReadAndOnlyResolve(config.inputFile);
-                        //init.Typecheck();
-                        
-                        running = false;
+                        //init.Typecheck(); 
                     }
                     if (BoogieVerify.vcgen != null)
-                        BoogieVerify.vcgen.Close();
+                        BoogieVerify.vcgen.Close(); 
 
-                    // send stats
-                    string stats = string.Format("Must Reach Parallel time: {0}", BoogieVerify.mustReachParTime.ToString("F2")) + Environment.NewLine +
-                        string.Format("\tZ3 time: {0}", BoogieVerify.z3Time.ToString("F2")) + Environment.NewLine +
-                        string.Format("Loading calltrees: {0}", BoogieVerify.loadingCTTime.ToString("F2"));
-                    LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("{0}", stats));
-                    server.Send(EncodeStr(stats));
+                    LogWithAddress.WriteLine(LogWithAddress.Debug, string.Format("{0}", BoogieVerify.AccumulatedStats.ToString())); 
 
                     LogWithAddress.Close();
                     Log.Close();
+                    if (server != null && server.Connected)
+                        server.Close();
                     throw new NormalExit("Done");
                 }
                 else
@@ -913,7 +906,7 @@ namespace cba
             ProgTransformation.PersistentProgram.FreeParserMemory();
             
             return inputProg;
-        }
+        } 
 
         // Inline procedures call from inside a CodeExpr
         public static void PreProcessCodeExpr(Program program)

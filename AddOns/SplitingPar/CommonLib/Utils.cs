@@ -21,7 +21,7 @@ namespace CommonLib
         public static string OutOfResourceMsg = "OutOfMemory";
         public static string OutOfMemoryMsg = "Inconclusive";
         public static string ReachedBoundMsg = "ReachedBound";
-        public static string CompletionMsg = "Complete";
+        public static string CompletionMsg = "Complete"; 
         public static string StartMsg = "Start";
         public static string StartWithCallTreeMsg = "Start:";
         public static string DoingMsg = "Doing";        
@@ -46,9 +46,11 @@ namespace CommonLib
         public static string UseLocal = "/useLocal";
         public static string SaveResult = "/saveResult";
         public static string LogResult = "allResults.txt";
+        public static string TableResult = "tableResults.csv";
 
         // other
         public static string ServerLog = "ServerLog.out";
+        public static string ClientStats = "ClientStats.xml";
         public static string ClientLog = "ClientLog.out";
         public static string CallTreeSuffix = "split.txt";
         public static string Server = "Server";

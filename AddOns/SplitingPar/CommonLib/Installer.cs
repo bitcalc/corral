@@ -68,7 +68,7 @@ namespace CommonLib
             // clean run folder
             var oldFiles = System.IO.Directory.GetFiles(System.IO.Path.Combine(remote, Utils.RunDir));
             foreach (var file in oldFiles)
-                if (file.EndsWith("txt"))
+                if (file.EndsWith("txt") || file.EndsWith("dot") || file.EndsWith("out") || file.EndsWith("xml"))
                     System.IO.File.Delete(System.IO.Path.GetFullPath(file));
         }
 

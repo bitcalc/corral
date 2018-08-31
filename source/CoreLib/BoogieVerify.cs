@@ -15,6 +15,54 @@ namespace cba.Util
 {
     public static class BoogieVerify
     {
+        public static class AccumulatedStats
+        {
+            public static int totalTasks = 0;
+            public static double loadingCTTime = 0;
+            public static double z3Time = 0;
+            public static double checkTime = 0;
+            public static double decisionTime = 0;
+            public static double getOutComeCoreTime = 0;
+            public static double mustReachParTime = 0; 
+
+            public static void DumpStats()
+            { 
+                var outf = new StreamWriter("ClientStats.xml", false);
+
+                outf.WriteLine(@"<?xml version=""1.0"" encoding=""utf-8"" ?>");
+                outf.WriteLine(@"<ClientStats xmlns:xsd=""http://www.w3.org/2001/XMLSchema"" xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"">"); 
+                outf.WriteLine(@"<TotalTasks>{0}</TotalTasks>", totalTasks);
+
+                outf.WriteLine(@"<MustReachParallel>");
+                outf.WriteLine(@"   <SIDecisionsTime>{0}</SIDecisionsTime>", decisionTime.ToString("F2"));
+                outf.WriteLine(@"   <Z3Time>{0}</Z3Time>", z3Time.ToString("F2"));
+                outf.WriteLine(@"   <Total>{0}</Total>", mustReachParTime.ToString("F2"));
+                outf.WriteLine(@"</MustReachParallel>");
+
+                outf.WriteLine(@"<InliningCallTreesTime>{0}</InliningCallTreesTime>", loadingCTTime.ToString("F2"));
+
+                outf.WriteLine(@"<TotalTime>");
+                outf.WriteLine(@"   <WorkingTime>{0}</WorkingTime>", 0);
+                outf.WriteLine(@"   <WaittingTime>{0}</WaittingTime>", 0);
+                outf.WriteLine(@"   <Total>{0}</Total>", 0);
+                outf.WriteLine(@"</TotalTime>");
+                
+                outf.WriteLine(@"</ClientStats>"); 
+                outf.Close();
+            }
+
+            public static string ToString()
+            {
+                string stats = string.Format("Total tasks: {0}", totalTasks) + Environment.NewLine +
+                        string.Format("Must Reach Parallel time: {0}", mustReachParTime.ToString("F2")) + Environment.NewLine +
+                        string.Format("\tZ3 time: {0}", z3Time.ToString("F2")) + Environment.NewLine +
+                        string.Format("\tDecisions time: {0}", decisionTime.ToString("F2")) + Environment.NewLine + 
+                        string.Format("\t\tGetting outcome core time: {0}", getOutComeCoreTime.ToString("F2")) + Environment.NewLine +
+                        string.Format("Inlining calltrees: {0}", loadingCTTime.ToString("F2"));
+                return stats;
+            }
+        }
+
         public enum ReturnStatus { OK, NOK, ReachedBound };
         public static readonly string ExtraRecBoundAttr = "SIextraRecBound";
 
@@ -38,9 +86,7 @@ namespace cba.Util
         public static HashSet<string> procsHitRecBound = new HashSet<string>();
         public static bool PrintImplsBeingVerified = false;
         public static bool singleConnectionOnly = false;
-        public static double loadingCTTime = 0;
-        public static double z3Time = 0;
-        public static double mustReachParTime = 0;
+        
 
         // TODO: move this elsewhere
         public static HashSet<string> ignoreAssertMethods;
@@ -217,7 +263,7 @@ namespace cba.Util
                 try
                 {
                     var start = DateTime.Now;
-
+                    BoogieVerify.AccumulatedStats.totalTasks += 1;
                     outcome = vcgen.VerifyImplementation(impl, out errors); 
                     var end = DateTime.Now;
 
